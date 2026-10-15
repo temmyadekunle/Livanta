@@ -13,9 +13,22 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+export function hasUsableCloudConfig(
+  url: string | undefined,
+  key: string | undefined,
+): boolean {
+  if (!url || !key) return false;
+  const cleanUrl = url.trim();
+  const cleanKey = key.trim();
+  if (!/^https:\/\//i.test(cleanUrl)) return false;
+  if (/^https:\/\/your/i.test(cleanUrl)) return false;
+  if (/^your[-_]/i.test(cleanKey)) return false;
+  return true;
+}
+
 /** True when a project URL and anon key were provided at build time. */
 export function isCloudEnabled(): boolean {
-  return Boolean(URL && ANON_KEY);
+  return hasUsableCloudConfig(URL, ANON_KEY);
 }
 
 let cached: SupabaseClient | null = null;

@@ -20,7 +20,8 @@
   # The avatar flow can open the camera via an <input capture>, so camera stays
   # on for this origin only. Everything else powerful is denied outright: the
   # app never records audio, never reads sensors, never takes payment.
-  Permissions-Policy: camera=(self), microphone=(), geolocation=(), gyroscope=(), magnetometer=(), accelerometer=(), payment=(), usb=()
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(), gyroscope=(), magnetometer=(), accelerometer=(), payment=(), usb=(), browsing-topics=()
+  Cross-Origin-Resource-Policy: same-origin
   # Isolates the browsing context so a compromised opener cannot reach this app
   # through window.opener. Nothing here opens cross-origin popups, so the cost
   # is zero.
