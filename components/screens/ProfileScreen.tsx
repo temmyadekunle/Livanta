@@ -21,6 +21,7 @@ import {
   serverPermissionSnapshot,
   subscribeToPermission,
 } from "@/lib/notifications";
+import { parseImport, planIsEmpty, type ImportPlan } from "@/lib/import";
 import type { Locale, Translate } from "@/lib/i18n";
 import type { useAuth } from "@/lib/useAuth";
 import type { useCloudSync } from "@/lib/useCloudSync";
@@ -29,6 +30,14 @@ import type { useLivanta } from "@/lib/useLivanta";
 type Desk = ReturnType<typeof useLivanta>;
 
 const LEAD_CHOICES = [90, 60, 30, 14, 7, 1];
+
+/** Skip reasons are kebab-case in the data; the catalogue uses camelCase. */
+const SKIP_KEY = {
+  "not-object": "import.skip.notObject",
+  "missing-name": "import.skip.missingName",
+  "too-long": "import.skip.tooLong",
+  duplicate: "import.skip.duplicate",
+} as const;
 
 export function ProfileScreen({
   desk,
@@ -54,6 +63,35 @@ export function ProfileScreen({
   const name = desk.settings.displayName;
   const [nameDraft, setNameDraft] = useState(name);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
+  /* A parsed import waits here until the user has seen the preview and
+     confirmed. Cancelling (or navigating away) writes nothing. */
+  const [pendingImport, setPendingImport] = useState<ImportPlan | null>(null);
+  const [importSettingsToo, setImportSettingsToo] = useState(false);
+
+  const onPickImportFile = async (input: HTMLInputElement) => {
+    const file = input.files?.[0];
+    // Allow the same file to be picked again after a cancel or a failure.
+    input.value = "";
+    if (!file) return;
+    const text = await file.text();
+    const result = parseImport(text, { existing: desk.things, now: new Date() });
+    if (!result.ok) {
+      const errorKey =
+        result.error === "invalid-json"
+          ? "import.error.json"
+          : result.error === "unsupported-version"
+            ? "import.error.version"
+            : "import.error.file";
+      showToast(t(errorKey), "danger");
+      return;
+    }
+    if (planIsEmpty(result.plan)) {
+      showToast(t("import.nothing"), "info");
+      return;
+    }
+    setImportSettingsToo(false);
+    setPendingImport(result.plan);
+  };
 
   const upcoming = useMemo(
     () =>
@@ -360,6 +398,23 @@ export function ProfileScreen({
               <Icon name="chevronRight" size={18} />
             </span>
           </button>
+          {/* Same label-wraps-input pattern as the avatar picker above: the
+              file dialog is the browser's, nothing is written until the
+              preview below is confirmed. */}
+          <label className="setrow">
+            <span className="listrow__lead">
+              <Icon name="upload" size={18} />
+            </span>
+            <span className="setrow__body">
+              <span className="setrow__title">{t("profile.import")}</span>
+            </span>
+            <input
+              type="file"
+              accept=".json,application/json"
+              hidden
+              onChange={(e) => void onPickImportFile(e.target)}
+            />
+          </label>
           <button
             className="setrow"
             onClick={() => {
@@ -378,6 +433,68 @@ export function ProfileScreen({
             </span>
           </button>
         </div>
+        {pendingImport ? (
+          <div className="card" style={{ marginTop: "0.75rem" }}>
+            <p className="card-meta" style={{ fontWeight: 600 }}>
+              {t("import.preview")}
+            </p>
+            <p className="card-meta">{t("import.new", { n: pendingImport.add.length })}</p>
+            <p className="card-meta">
+              {t("import.updated", { n: pendingImport.replace.length })}
+            </p>
+            <p className="card-meta">{t("import.kept", { n: pendingImport.keepLocal.length })}</p>
+            <p className="card-meta">
+              {t("import.skipped", { n: pendingImport.skipped.length })}
+            </p>
+            {pendingImport.adjusted > 0 ? (
+              <p className="card-meta">
+                {t("import.adjusted", { n: pendingImport.adjusted })}
+              </p>
+            ) : null}
+            {pendingImport.skipped.length > 0 ? (
+              <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.1rem" }}>
+                {pendingImport.skipped.slice(0, 8).map((s) => (
+                  <li className="card-meta" key={s.index}>
+                    {s.name?.slice(0, 40) || `#${s.index + 1}`} —{" "}
+                    {t(SKIP_KEY[s.reason])}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {pendingImport.settings ? (
+              <label className="setrow" style={{ paddingInline: 0 }}>
+                <span className="setrow__body">
+                  <span className="setrow__title">{t("import.applySettings")}</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={importSettingsToo}
+                  onChange={(e) => setImportSettingsToo(e.target.checked)}
+                />
+              </label>
+            ) : null}
+            <button
+              className="btn btn--primary btn--block"
+              style={{ marginTop: "0.75rem" }}
+              onClick={() => {
+                const plan = pendingImport;
+                if (!plan) return;
+                setPendingImport(null);
+                void desk.importThings(plan, importSettingsToo).then(() => {
+                  showToast(t("import.done"), "ok");
+                });
+              }}
+            >
+              {t("import.confirm")}
+            </button>
+            <button
+              className="btn btn--ghost btn--block"
+              onClick={() => setPendingImport(null)}
+            >
+              {t("import.cancel")}
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="section">

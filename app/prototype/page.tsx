@@ -425,7 +425,8 @@ Android WebView wrapper (build-android.ps1) — signed APK → GitHub Release`}<
               <li>Five-tab shell with splash and five-step onboarding</li>
               <li>Demo mode with seeded Nigerian household</li>
               <li>Four languages, providers with call/WhatsApp</li>
-              <li>JSON export, delete-all, PWA offline, signed APK</li>
+              <li>JSON export &amp; import, delete-all, PWA offline, signed APK</li>
+              <li>Calendar-correct recurrence; local Android reminders (APK)</li>
               <li>No tracking, CSP enforced</li>
             </ul>
           </div>
@@ -434,7 +435,6 @@ Android WebView wrapper (build-android.ps1) — signed APK → GitHub Release`}<
             <h3>v0.2–0.3</h3>
             <ul>
               <li>Optional accounts &amp; sync (Supabase, fail-open cache built)</li>
-              <li>Recurring “mark handled → next occurrence” end-to-end</li>
               <li>Household members shared (data model ready)</li>
               <li>Push / email reminder channels</li>
               <li>Play Store &amp; App Store listings</li>

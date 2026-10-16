@@ -26,8 +26,8 @@ test("daysUntil", async (t) => {
 });
 
 test("addFrequency", async (t) => {
-  await t.test("monthly rolls forward ~30 days", () => {
-    assert.equal(addFrequency("2026-10-03", "monthly"), "2026-11-02");
+  await t.test("monthly rolls forward one calendar month", () => {
+    assert.equal(addFrequency("2026-10-03", "monthly"), "2026-11-03");
   });
 
   await t.test("annual rolls forward a year", () => {
@@ -36,6 +36,12 @@ test("addFrequency", async (t) => {
 
   await t.test("none returns null", () => {
     assert.equal(addFrequency("2026-10-03", "none"), null);
+  });
+
+  await t.test("delegates to the shared calendar-correct maths", () => {
+    // Quarterly from the 31st clamps to April 30 — a fixed 91-day step would
+    // have landed on May 1 and then kept drifting.
+    assert.equal(addFrequency("2026-01-31", "quarterly"), "2026-04-30");
   });
 });
 

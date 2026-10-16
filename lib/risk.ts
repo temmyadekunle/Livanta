@@ -1,4 +1,5 @@
 import { makeT, type Translate } from "./i18n.ts";
+import { nextOccurrence } from "./dates.ts";
 import type { Alert, Frequency, Priority, Thing } from "./types.ts";
 
 const MS_PER_DAY = 86_400_000;
@@ -45,23 +46,18 @@ export function utcDaysUntil(iso: string, now: Date = new Date()): number {
   return Math.round((target - start) / MS_PER_DAY);
 }
 
+/**
+ * Kept as the public name callers already know; the maths lives in
+ * lib/dates.ts nextOccurrence, which is also what "mark handled" uses, so
+ * the two paths can never disagree about when the next due date is.
+ */
 export function addFrequency(
   iso: string,
   frequency: Frequency,
   interval = 1,
 ): string | null {
   if (frequency === "none") return null;
-  const date = new Date(`${iso}T00:00:00`);
-  const steps: Record<Exclude<Frequency, "none">, number> = {
-    weekly: 7,
-    biweekly: 14,
-    monthly: 30,
-    quarterly: 91,
-    biannual: 182,
-    annual: 365,
-  };
-  date.setDate(date.getDate() + steps[frequency] * Math.max(1, interval));
-  return date.toISOString().slice(0, 10);
+  return nextOccurrence(iso, frequency, interval);
 }
 
 /**

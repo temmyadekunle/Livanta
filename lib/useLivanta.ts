@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildAlerts, daysUntil, derivePriority, formatNaira } from "./risk.ts";
+import { nextOccurrence, toISO } from "./dates.ts";
+import type { ImportPlan } from "./import.ts";
 import { amountOrZero } from "./money.ts";
 import { computeLifeStatus } from "./status.ts";
 import { deleteThing, getAllAlerts, getAllThings, putAlert, putThing, clearAllStores } from "./db.ts";
@@ -203,13 +205,15 @@ export function useLivanta() {
    */
   const completeThing = useCallback(
     async (thing: Thing) => {
-      const today = new Date().toISOString().slice(0, 10);
+      // Local calendar day: toISOString would report UTC's date, which is
+      // yesterday just after midnight in Lagos (UTC+1).
+      const today = toISO(new Date());
       const updated: Thing = {
         ...thing,
         lastHandledDate: today,
         status: thing.recurrence ? "active" : "completed",
         dueDate: thing.recurrence
-          ? rollForward(today, thing.recurrence.frequency, thing.recurrence.interval)
+          ? nextOccurrence(today, thing.recurrence.frequency, thing.recurrence.interval)
           : thing.dueDate,
         updatedAt: new Date().toISOString(),
       };
@@ -263,6 +267,25 @@ export function useLivanta() {
     [refresh],
   );
 
+  /**
+   * Applies a previewed import plan (see lib/import.ts). The plan is only ever
+   * produced by parseImport after the user has seen the preview, so this
+   * trusts its sanitisation but nothing else: settings land only when the user
+   * explicitly opted in at the preview.
+   */
+  const importThings = useCallback(
+    async (plan: ImportPlan, includeSettings: boolean) => {
+      for (const thing of [...plan.add, ...plan.replace]) {
+        await putThing(thing);
+      }
+      if (includeSettings && plan.settings) {
+        await updateSettings(plan.settings);
+      }
+      await refresh();
+    },
+    [refresh, updateSettings],
+  );
+
   const byCategory = useCallback(
     (category: Category) => things.filter((t) => t.category === category),
     [things],
@@ -305,28 +328,8 @@ export function useLivanta() {
     restoreAlerts,
     updateThing,
     removeThing,
+    importThings,
     byCategory,
     formatNaira,
   };
-}
-
-const STEP_DAYS: Record<string, number> = {
-  weekly: 7,
-  biweekly: 14,
-  monthly: 30,
-  quarterly: 91,
-  biannual: 182,
-  annual: 365,
-};
-
-function rollForward(
-  from: string,
-  frequency: string,
-  interval = 1,
-): string | null {
-  const days = STEP_DAYS[frequency];
-  if (!days) return null;
-  const date = new Date(`${from}T00:00:00`);
-  date.setDate(date.getDate() + days * Math.max(1, interval));
-  return date.toISOString().slice(0, 10);
 }

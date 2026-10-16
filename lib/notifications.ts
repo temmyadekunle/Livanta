@@ -136,6 +136,28 @@ export function notifyUrgentAlert(
   }
 }
 
+/**
+ * Fires a browser notification for a planned reminder (see lib/reminders.ts),
+ * at most once per session per reminder id. This is the web's only delivery
+ * path for lead-day and overdue reminders; native builds schedule the same
+ * plan through lib/schedule.ts and do not depend on this.
+ */
+export function notifyReminder(
+  reminder: { id: string; title: string; body: string },
+  alreadyNotified: Set<string>,
+): boolean {
+  if (typeof window === "undefined" || !("Notification" in window)) return false;
+  if (Notification.permission !== "granted") return false;
+  if (alreadyNotified.has(reminder.id)) return false;
+
+  try {
+    new Notification(reminder.title, { body: reminder.body, tag: reminder.id });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function exportPayload(
   things: Thing[],
   settings: Settings,

@@ -22,6 +22,27 @@ export const GOOGLE_PLAY_URL = "";
 export const APPLE_APP_STORE_URL = "";
 
 /**
+ * Direct Android APK, published as a GitHub release. Verified live on
+ * 2026-10-16: HTTP 200, Content-Type application/vnd.android.package-archive,
+ * 6,986,079 bytes. This is a sideload build, not a store listing, so it lives
+ * beside the (still empty) store URLs rather than inside them. iOS devices
+ * cannot install it; the download controls only surface it where it works.
+ */
+export const DIRECT_APK_URL =
+  "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.0/livanta-0.1.0-release.apk";
+
+/** Version label shown next to the APK link. Bump with each release upload. */
+export const APK_VERSION = "0.1.0";
+
+/** Byte size of the release asset, used to render an honest size hint. */
+export const APK_SIZE_BYTES = 6_986_079;
+
+/** Formats the APK size the way a download page should ("6.7 MB"). */
+export function apkSizeLabel(bytes: number = APK_SIZE_BYTES): string {
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
+/**
  * Where the QR code and the generic desktop CTA point once publishing happens.
  * This is the one URL a person on a desktop computer can act on, since a
  * desktop cannot install from a store that has no desktop build. Deliberately

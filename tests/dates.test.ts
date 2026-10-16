@@ -2,7 +2,7 @@ import test from "node:test";
 
 import { assert } from "./helpers.ts";
 
-import { dayPart } from "../lib/dates.ts";
+import { dayPart, nextOccurrence } from "../lib/dates.ts";
 import { en } from "../lib/locales/en.ts";
 import { greetingKey } from "../lib/useDayPart.ts";
 
@@ -74,5 +74,58 @@ test("greetingKey", async (t) => {
     assert.notEqual(en["app.greeting.morning"], en["app.greeting.afternoon"]);
     assert.notEqual(en["app.greeting.afternoon"], en["app.greeting.evening"]);
     assert.notEqual(en["app.greeting.morning"], en["app.greeting.evening"]);
+  });
+});
+
+test("nextOccurrence", async (t) => {
+  await t.test("weekly and biweekly are exact day steps", () => {
+    assert.equal(nextOccurrence("2026-10-03", "weekly"), "2026-10-10");
+    assert.equal(nextOccurrence("2026-10-03", "biweekly"), "2026-10-17");
+  });
+
+  await t.test("weekly steps across a month boundary", () => {
+    assert.equal(nextOccurrence("2026-10-28", "weekly"), "2026-11-04");
+  });
+
+  await t.test("monthly adds a calendar month, not 30 days", () => {
+    assert.equal(nextOccurrence("2026-10-03", "monthly"), "2026-11-03");
+    assert.equal(nextOccurrence("2026-12-15", "monthly"), "2027-01-15");
+  });
+
+  await t.test("monthly clamps to the end of a shorter month", () => {
+    assert.equal(nextOccurrence("2026-01-31", "monthly"), "2026-02-28");
+    assert.equal(nextOccurrence("2024-01-31", "monthly"), "2024-02-29");
+    assert.equal(nextOccurrence("2026-03-31", "monthly"), "2026-04-30");
+  });
+
+  await t.test("a clamped day becomes the new anchor", () => {
+    // The user thinks of it as "the 28th from now on" once February clamped.
+    assert.equal(nextOccurrence("2026-02-28", "monthly"), "2026-03-28");
+  });
+
+  await t.test("quarterly and biannual are whole calendar months", () => {
+    assert.equal(nextOccurrence("2026-10-03", "quarterly"), "2027-01-03");
+    assert.equal(nextOccurrence("2026-10-31", "quarterly"), "2027-01-31");
+    assert.equal(nextOccurrence("2026-01-31", "biannual"), "2026-07-31");
+  });
+
+  await t.test("annual lands on the same day next year, clamping Feb 29", () => {
+    assert.equal(nextOccurrence("2026-10-03", "annual"), "2027-10-03");
+    assert.equal(nextOccurrence("2024-02-29", "annual"), "2025-02-28");
+  });
+
+  await t.test("interval multiplies the step", () => {
+    assert.equal(nextOccurrence("2026-10-03", "weekly", 3), "2026-10-24");
+    assert.equal(nextOccurrence("2026-10-03", "monthly", 2), "2026-12-03");
+    assert.equal(nextOccurrence("2026-01-31", "monthly", 3), "2026-04-30");
+  });
+
+  await t.test("interval below 1 is treated as 1", () => {
+    assert.equal(nextOccurrence("2026-10-03", "weekly", 0), "2026-10-10");
+    assert.equal(nextOccurrence("2026-10-03", "monthly", -2), "2026-11-03");
+  });
+
+  await t.test("none returns null", () => {
+    assert.equal(nextOccurrence("2026-10-03", "none"), null);
   });
 });

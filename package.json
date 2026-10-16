@@ -17,6 +17,7 @@
     "@capacitor/android": "8.5.2",
     "@capacitor/app": "8.1.2",
     "@capacitor/core": "8.5.2",
+    "@capacitor/local-notifications": "8.3.1",
     "@supabase/supabase-js": "^2.117.2",
     "eslint-config-next": "^16.3.8",
     "next": "^16.3.8",

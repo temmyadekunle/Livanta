@@ -8,6 +8,7 @@ import { Logo } from "@/components/Logo";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { DownloadButtons, StickyCta } from "@/components/landing/DownloadButtons";
 import { Faq } from "@/components/landing/Faq";
+import { APK_VERSION, DIRECT_APK_URL, apkSizeLabel } from "@/lib/landing/store";
 import {
   PhoneFrame,
   PhoneHome,
@@ -464,7 +465,8 @@ export default function LandingPage() {
               </FeatureCard>
               <FeatureCard icon="users" title="You are the family organiser">
                 School fees, birthdays, renewals, all shared informally. Livanta
-                makes the whole list legible, and assigns what you hand off.
+                makes the whole list legible in one place, so the handoffs are a
+                conversation instead of a chase.
               </FeatureCard>
             </div>
           </div>
@@ -557,14 +559,19 @@ export default function LandingPage() {
             <h2 className="lp-h2">Stop keeping it all in your head</h2>
             <p className="lp-lede">
               Rent, documents, vehicles, servicing. One list, on your phone,
-              working offline, free. Livanta is coming to Google Play and the App
-              Store now.
+              working offline, free. Install the Android build directly today;
+              Google Play and the App Store listings are on the way.
             </p>
 
             <div className="lp-final__cta">
-              <a className="btn btn--primary btn--lg" href="#download">
+              <a
+                className="btn btn--primary btn--lg"
+                href={DIRECT_APK_URL}
+                rel="noopener noreferrer"
+                download
+              >
                 <Icon name="download" size={18} />
-                Download the App
+                {`Download for Android (APK · v${APK_VERSION} · ${apkSizeLabel()})`}
               </a>
               <Link className="btn btn--ghost btn--lg" href="/">
                 Try it in your browser
@@ -619,9 +626,13 @@ export default function LandingPage() {
             </div>
             <div>
               <p className="lp-footer__label">Your data</p>
-              <Link href="/#profile">Manage your data</Link>
-              <Link href="/#export">Export your data</Link>
-              <Link href="/#account">Sync account</Link>
+              {/* These actions live in the app's Profile tab. The SPA has no
+                  /#profile-style deep links, so the honest destination is the
+                  app root — anything else would be a fragment that resolves to
+                  nothing. */}
+              <Link href="/">Manage your data</Link>
+              <Link href="/">Export your data</Link>
+              <Link href="/">Sync account</Link>
             </div>
           </nav>
         </div>
@@ -629,8 +640,8 @@ export default function LandingPage() {
         <div className="lp-wrap lp-footer__base">
           <p>&copy; {BUILD_NOW.getUTCFullYear()} Livanta. Built in Nigeria.</p>
           <p className="lp-footer__fine">
-            Store listings are not live yet. The web app is the current way to use
-            Livanta.
+            Store listings are not live yet. Use the web app, or install the
+            Android APK directly.
           </p>
         </div>
       </footer>

@@ -96,9 +96,10 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Can I share a list with my family?",
     a: (
       <>
-        Assigning an item to a partner or household member is already in the app,
-        so one person can see what they are responsible for. Shared, always-on
-        household accounts are planned but not yet available.
+        Not yet. Livanta is a personal list today — one device, one owner.
+        Shared household accounts, member roles, and assigning an item to
+        someone else are planned, but nothing ships in that direction until the
+        data model and the privacy story both hold up.
       </>
     ),
   },

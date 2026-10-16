@@ -20,7 +20,9 @@ import { dueMeta, TONE_CLASS } from "./labels";
 import { formatDate } from "@/lib/dates";
 import { formatNaira } from "@/lib/i18n";
 import { hasAmount } from "@/lib/money";
-import { notifyUrgentAlert } from "@/lib/notifications";
+import { notifyReminder, notifyUrgentAlert } from "@/lib/notifications";
+import { planReminders } from "@/lib/reminders";
+import { rescheduleReminders } from "@/lib/schedule";
 import { fromEditorValues, type EditorPreset } from "@/lib/editor";
 import InstallPrompt from "./InstallPrompt";
 import type { TKey } from "@/lib/locales/en";
@@ -162,15 +164,70 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
     scheduleSync();
   }, [signature, desk.ready, scheduleSync]);
 
+  /* Minute tick: the in-session fallback needs to notice time passing while
+     the tab stays open (a 9am reminder must fire at 9am, not at the next data
+     change). 60s granularity matches the planner's day/hour resolution. */
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  /* Hand the reminder plan to the native scheduler (AlarmManager via the
+     local notifications plugin), which fires with the app closed. On the web
+     this resolves to "unsupported" immediately — there is no reliable
+     scheduled-notification API there — and the in-session path below is the
+     only delivery. Reconciled wholesale on every data or settings change, so
+     a deleted thing stops notifying without any bookkeeping here. The plan is
+     recomputed inside the effect on data changes (cheap, pure) and the
+     signature gate keeps that from turning into a cancel/reschedule loop. */
+  const lastScheduled = useRef("");
+  useEffect(() => {
+    if (!desk.ready) return;
+    const plan = desk.settings.notifyUrgent
+      ? planReminders(desk.things, {
+          leadDays: desk.settings.leadDays,
+          tr: t,
+        })
+      : [];
+    // Locale in the signature: switching language must re-schedule so the
+    // native notifications carry copy in the new language.
+    const signature = `${t.locale}|${plan
+      .map((r) => `${r.id}@${r.fireAt.getTime()}`)
+      .join("|")}`;
+    if (signature === lastScheduled.current) return;
+    lastScheduled.current = signature;
+    void rescheduleReminders(plan);
+  }, [desk.ready, desk.things, desk.settings.notifyUrgent, desk.settings.leadDays, t]);
+
   const notified = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!desk.ready || !desk.settings.notifyUrgent) return;
     const urgent = desk.alerts.find((a) => a.priority === "urgent");
-    if (!urgent) return;
-    if (notifyUrgentAlert(urgent, notified.current)) {
+    if (urgent && notifyUrgentAlert(urgent, notified.current)) {
       notified.current.add(urgent.id);
     }
-  }, [desk.ready, desk.settings.notifyUrgent, desk.alerts]);
+    const now = new Date();
+    const plan = planReminders(desk.things, {
+      leadDays: desk.settings.leadDays,
+      tr: t,
+      now,
+    });
+    for (const reminder of plan) {
+      if (reminder.fireAt.getTime() > now.getTime()) continue;
+      if (notifyReminder(reminder, notified.current)) {
+        notified.current.add(reminder.id);
+      }
+    }
+  }, [
+    desk.ready,
+    desk.settings.notifyUrgent,
+    desk.settings.leadDays,
+    desk.alerts,
+    desk.things,
+    t,
+    nowTick,
+  ]);
 
   const openThing = useCallback((thing: Thing) => {
     setEditId(null);

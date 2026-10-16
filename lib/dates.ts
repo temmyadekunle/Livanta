@@ -8,6 +8,7 @@
  */
 
 import type { Locale } from "./i18n.ts";
+import type { Frequency } from "./types.ts";
 
 /**
  * Which part of the day it is, for greetings.
@@ -46,6 +47,73 @@ export function toISO(date: Date): string {
 
 export function addMonths(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, 1);
+}
+
+/**
+ * The next occurrence of a recurring due date — the single source of truth
+ * for recurrence, shared by "mark handled" (useLivanta.completeThing) and
+ * anything that previews or recomputes a schedule.
+ *
+ * Calendar-correct, not fixed-step: monthly means one calendar month later
+ * (31 January -> 28/29 February -> 31 March), not "+30 days", which drifts
+ * forward through the year and quietly lands a January 31st bill on March 2nd
+ * and then earlier each cycle. Month-length clamping follows the usual rule:
+ * Jan 31 monthly -> Feb 28 (29 in a leap year), and that clamped day becomes
+ * the new anchor, matching how people think about "the 28th from now on".
+ *
+ * Entirely local-component arithmetic: due dates are bare calendar days, and
+ * a round-trip through Date#toISOString would hand back the previous day for
+ * anyone east of UTC — Lagos (UTC+1) included, which is most of the audience.
+ */
+export function nextOccurrence(
+  fromIso: string,
+  frequency: Frequency,
+  interval = 1,
+): string | null {
+  if (frequency === "none") return null;
+  const n = Math.max(1, interval);
+  const from = parseISO(fromIso);
+
+  const addDays = (days: number): string =>
+    toISO(
+      new Date(from.getFullYear(), from.getMonth(), from.getDate() + days),
+    );
+
+  // Adds whole months, clamping the day of month to the target month's
+  // length (31 Jan + 1 -> 28 Feb). The result is computed from the original
+  // day each time, so interval 3 from Jan 31 lands on Apr 30, not Apr 28.
+  const addMonthsClamped = (months: number): string => {
+    const first = new Date(
+      from.getFullYear(),
+      from.getMonth() + months,
+      1,
+    );
+    const lastDay = new Date(
+      first.getFullYear(),
+      first.getMonth() + 1,
+      0,
+    ).getDate();
+    return toISO(
+      new Date(first.getFullYear(), first.getMonth(), Math.min(from.getDate(), lastDay)),
+    );
+  };
+
+  switch (frequency) {
+    case "weekly":
+      return addDays(7 * n);
+    case "biweekly":
+      return addDays(14 * n);
+    case "monthly":
+      return addMonthsClamped(n);
+    case "quarterly":
+      return addMonthsClamped(3 * n);
+    case "biannual":
+      return addMonthsClamped(6 * n);
+    case "annual":
+      return addMonthsClamped(12 * n);
+    default:
+      return null;
+  }
 }
 
 export function isSameDay(a: Date, b: Date): boolean {

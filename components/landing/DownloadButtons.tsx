@@ -1,22 +1,30 @@
 "use client";
 
 /**
- * Store download controls.
+ * Download controls: the direct Android APK plus store badges.
  *
- * Every badge reads from lib/landing/store.ts. Because the store URLs are empty
- * until the apps are published, the badges render as non-interactive elements
- * with a "coming soon" label rather than links. That is the whole point: a
- * visitor cannot be sent to a store search that finds nothing, and the day a
- * real URL lands in the config these become ordinary links with no other change.
+ * The APK link is the one real download today — it points at the verified
+ * GitHub release. The store badges still read from lib/landing/store.ts and
+ * render as non-interactive "coming soon" elements until each store listing
+ * exists, so a visitor is never sent to a search that finds nothing. When a
+ * real store URL lands in the config, that badge becomes an ordinary link with
+ * no other change.
  *
  * The badge artwork below is a deliberately plain, self-drawn approximation, not
  * the official Google Play or Apple artwork. Shipping the official badges is a
  * trademark licence question and also requires their exact geometry, so replace
  * these with the official assets from each store's brand guidelines before
- * publishing. The accessible names and layout will not change when you do.
+ * publishing. The accessible names and layout will not change when they do.
  */
 import { useSyncExternalStore } from "react";
-import { ANY_STORE_AVAILABLE, STORE_LIST, storeForDevice, type Store } from "@/lib/landing/store";
+import {
+  APK_VERSION,
+  DIRECT_APK_URL,
+  apkSizeLabel,
+  STORE_LIST,
+  storeForDevice,
+  type Store,
+} from "@/lib/landing/store";
 
 /** Recognisable without impersonating the official artwork. */
 function PlayGlyph() {
@@ -76,6 +84,30 @@ function Badge({ store, size }: { store: Store; size: "lg" | "md" }) {
 }
 
 /**
+ * The direct APK link. Only ever rendered where an Android build can be
+ * installed, so the label never promises a package the device cannot use.
+ */
+function ApkBadge({ size }: { size: "lg" | "md" }) {
+  return (
+    <a
+      className={`lp-badge lp-badge--${size}`}
+      href={DIRECT_APK_URL}
+      rel="noopener noreferrer"
+      download
+    >
+      <PlayGlyph />
+      <span className="lp-badge__text">
+        <span className="lp-badge__small">Install directly</span>
+        <span className="lp-badge__name">Android APK</span>
+      </span>
+      <span className="lp-badge__soon">
+        v{APK_VERSION} · {apkSizeLabel()}
+      </span>
+    </a>
+  );
+}
+
+/**
  * The two store badges plus a status line.
  *
  * `tone` picks the wording: the hero promises the app, the closing section
@@ -97,6 +129,7 @@ export function DownloadButtons({
   return (
     <div className={`lp-downloads lp-downloads--${align} ${className}`}>
       <div className="lp-downloads__row">
+        <ApkBadge size={size} />
         {STORE_LIST.map((store) => (
           <Badge key={store.id} store={store} size={size} />
         ))}
@@ -105,8 +138,8 @@ export function DownloadButtons({
         <p className="lp-downloads__note">
           {published.length === 0 ? (
             <>
-              <strong>Coming soon.</strong> Livanta is in final testing for both stores.
-              The app already works on the web and installs to your home screen.
+              <strong>The Android APK installs today.</strong> Google Play and the
+              App Store listings are on the way.
             </>
           ) : published.length === 1 ? (
             <>Available on {published[0].name}. The other store is on the way.</>
@@ -122,10 +155,10 @@ export function DownloadButtons({
 /**
  * The sticky mobile action bar.
  *
- * Only appears on a phone, because a desktop has no store build to open. It
- * routes to the store that matches the device when there is one, and otherwise
- * explains that the listing is not up yet, which is the only honest thing to
- * put under a thumb.
+ * On a phone it routes to the store that matches the device when there is one,
+ * and on Android falls back to the direct APK while the stores are still
+ * unpublished. It stays off the page entirely on iOS with no App Store listing,
+ * because an APK link under an iPhone thumb is a dead end.
  */
 
 /* Which store a device wants is a fact about the browser, not about anything
@@ -140,29 +173,43 @@ const subscribeToNothing = () => () => {};
 const noStoreOnServer = () => null;
 const storeOnThisDevice = (): Store | null =>
   storeForDevice(navigator.userAgent, navigator.maxTouchPoints);
+const androidOnThisDevice = (): boolean =>
+  typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 
 export function StickyCta() {
   const store = useSyncExternalStore(subscribeToNothing, storeOnThisDevice, noStoreOnServer);
+  const isAndroid = useSyncExternalStore(subscribeToNothing, androidOnThisDevice, () => false);
 
-  // Nothing to offer yet, so the bar stays out of the way entirely rather than
-  // parking a dead button over the bottom of every page.
-  if (!ANY_STORE_AVAILABLE) return null;
+  const apkFallback = !store && isAndroid && DIRECT_APK_URL.length > 0;
+
+  // Nothing this device can act on, so the bar stays out of the way entirely
+  // rather than parking a dead button over the bottom of every page.
+  if (!store && !apkFallback) return null;
 
   return (
     <div className="lp-sticky">
       <div className="lp-sticky__inner">
         <span className="lp-sticky__text">
           <strong>Livanta</strong>
-          <span>{store ? `Get it on ${store.name}` : "Coming soon to the stores"}</span>
+          <span>
+            {store
+              ? `Get it on ${store.name}`
+              : `Android APK · v${APK_VERSION}`}
+          </span>
         </span>
         {store ? (
           <a className="btn btn--primary btn--sm" href={store.url} rel="noopener noreferrer">
             Download
           </a>
         ) : (
-          <span className="btn btn--primary btn--sm is-disabled" aria-disabled="true">
+          <a
+            className="btn btn--primary btn--sm"
+            href={DIRECT_APK_URL}
+            rel="noopener noreferrer"
+            download
+          >
             Download
-          </span>
+          </a>
         )}
       </div>
     </div>
