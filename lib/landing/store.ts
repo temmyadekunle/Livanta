@@ -24,18 +24,16 @@ export const APPLE_APP_STORE_URL = "";
 /**
  * Direct Android APK, published as a GitHub release. Verified live on
  * 2026-10-16: HTTP 200, Content-Type application/vnd.android.package-archive,
- * 6,986,079 bytes. This is a sideload build, not a store listing, so it lives
- * beside the (still empty) store URLs rather than inside them. iOS devices
- * cannot install it; the download controls only surface it where it works.
+ * 7,030,891 bytes (v0.1.1, versionCode 5, adds local notification reminders).
+ * This is a sideload build, not a store listing, so it lives beside the
+ * (still empty) store URLs rather than inside them. iOS devices cannot
+ * install it; the download controls only surface it where it works.
  */
 export const DIRECT_APK_URL =
-  "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.0/livanta-0.1.0-release.apk";
-
+  "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.1/livanta-0.1.1-release.apk";
 /** Version label shown next to the APK link. Bump with each release upload. */
-export const APK_VERSION = "0.1.0";
-
-/** Byte size of the release asset, used to render an honest size hint. */
-export const APK_SIZE_BYTES = 6_986_079;
+export const APK_VERSION = "0.1.1";
+export const APK_SIZE_BYTES = 7_030_891;
 
 /** Formats the APK size the way a download page should ("6.7 MB"). */
 export function apkSizeLabel(bytes: number = APK_SIZE_BYTES): string {
