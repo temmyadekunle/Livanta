@@ -33,7 +33,7 @@ export const DIRECT_APK_URL =
   "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.1/livanta-0.1.1-release.apk";
 /** Version label shown next to the APK link. Bump with each release upload. */
 export const APK_VERSION = "0.1.1";
-export const APK_SIZE_BYTES = 7_030_891;
+export const APK_SIZE_BYTES = 7_032_943;
 
 /** Formats the APK size the way a download page should ("6.7 MB"). */
 export function apkSizeLabel(bytes: number = APK_SIZE_BYTES): string {
