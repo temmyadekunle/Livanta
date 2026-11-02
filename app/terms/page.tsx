@@ -25,9 +25,8 @@ export default function TermsPage() {
       <div className="legal__draft">
         <strong>Draft &mdash; not yet in force</strong>
         This document is a working draft prepared for review. It has not been
-        reviewed by a lawyer and the beta is invite-only. Placeholders marked
-        below must be filled in before the service is opened to anyone outside
-        the test group.
+        reviewed by a lawyer and the beta is pre-release. Placeholders marked
+        below must be filled in before the service is opened more widely.
       </div>
 
       <h2>1. Agreement</h2>
@@ -41,7 +40,7 @@ export default function TermsPage() {
 
       <h2>2. The service is a beta</h2>
       <p>
-        Livanta is <strong>invite-only and under development</strong>. It is
+        Livanta is <strong>pre-release and under development</strong>. It is
         provided to you free of charge to test, for as long as the operator
         chooses to operate it. We may change, suspend or withdraw any part of it,
         or end the beta and remove the app, at any time and without notice. Your
@@ -83,8 +82,8 @@ export default function TermsPage() {
         You keep all ownership of the information you enter into Livanta. You
         grant the operator only the narrow licence needed to host, back up and
         display that information to you &mdash; for example, to store it on our
-        database so it can sync to your other devices. That licence ends when
-        you delete the data or close your account.
+        database when you use the optional account and sync. That licence ends
+        when you delete the data or ask us to delete your account.
       </p>
       <p>
         <strong>
@@ -118,8 +117,8 @@ export default function TermsPage() {
         </li>
       </ul>
       <p>
-        Because the beta is invite-only, sharing your access link or account
-        with someone outside the test group is a breach of these terms.
+        Accounts are personal to you. Sharing your sign-in credentials with
+        someone else is a breach of these terms.
       </p>
 
       <h2>7. Payments</h2>
@@ -129,9 +128,7 @@ export default function TermsPage() {
           [before any paid plan is sold: state the operator&rsquo;s name as shown
           on the account, the billing intervals available, the refund policy,
           and that prices exclude VAT where applicable]
-        </span>
-        . Prices shown in the app are proposals under test and are not an offer
-        capable of acceptance.
+        </span>.
       </p>
 
       <h2>8. Availability and changes</h2>
@@ -148,9 +145,10 @@ export default function TermsPage() {
         Data stored only on your device exists only on your device. Clearing
         your browser data, uninstalling the browser, wiping the device or
         losing it will delete your records permanently. Livanta cannot recover
-        them for you. Create an account for backup, or export your data
-        regularly. The operator is not liable for records lost on a device the
-        operator does not control.
+        them for you. Export your data regularly and keep the file. The optional
+        account and sync are still being completed, so they should not be relied
+        on as your only backup. The operator is not liable for records lost on a
+        device the operator does not control.
       </p>
 
       <h2>10. Disclaimer of warranties</h2>
@@ -191,10 +189,13 @@ export default function TermsPage() {
 
       <h2>13. Ending the agreement</h2>
       <p>
-        You may stop using Livanta at any time and delete your data from the
-        Profile tab. We may suspend or terminate your access if you breach these
-        terms, in particular the acceptable use rules. On termination you should
-        export your data, as we may delete it with the beta.
+        You may stop using Livanta at any time and delete your on-device data
+        from the Profile tab. In-app account deletion is not available yet; to
+        delete an account and its synced records, contact us at{" "}
+        <span className="legal__todo">[support email address]</span>. We may
+        suspend or terminate your access if you breach these terms, in
+        particular the acceptable use rules. On termination you should export
+        your data, as we may delete it with the beta.
       </p>
 
       <h2>14. Governing law</h2>

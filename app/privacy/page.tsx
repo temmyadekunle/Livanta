@@ -28,9 +28,8 @@ export default function PrivacyPage() {
       <div className="legal__draft">
         <strong>Draft &mdash; not yet in force</strong>
         This document is a working draft prepared for review. It has not been
-        reviewed by a lawyer and the beta is invite-only. Placeholders marked
-        below must be filled in before the service is opened to anyone outside
-        the test group.
+        reviewed by a lawyer and the beta is pre-release. Placeholders marked
+        below must be filled in before the service is opened more widely.
       </div>
 
       <h2>1. Who is responsible for your data</h2>
@@ -45,11 +44,12 @@ export default function PrivacyPage() {
 
       <h2>2. The short version</h2>
       <p>
-        Livanta is designed so that your information stays on your own device.
-        Records you create are written to your browser&rsquo;s local database.
-        Nothing is transmitted anywhere unless you deliberately create an
-        account and turn on sync. There is no advertising, no analytics and no
-        third-party tracking in the app.
+        Livanta is designed so that your information stays on your own device by
+        default. Records you create are written to your browser&rsquo;s local
+        database. Nothing is sent to us unless you create an account and sign in.
+        Signing in enables sync, which uploads the records on that device to your
+        account; sync is still being completed in the beta. There is no
+        advertising, no analytics and no third-party tracking in the app.
       </p>
 
       <h2>3. What you enter</h2>
@@ -103,10 +103,11 @@ export default function PrivacyPage() {
 
       <h3>On our servers, only if you sign in</h3>
       <p>
-        If you create an account, we store your email address and the same
-        records described above on our database host so they can follow you
-        between devices. Signing in is optional. Livanta is fully usable with
-        no account, and nothing leaves your device unless you do this.
+        If you create an account, we store your email address. While you are
+        signed in, Livanta syncs the records described above to our database host
+        so they can follow you between devices. Signing in is optional and
+        Livanta is fully usable with no account. Sync is still being completed
+        in the beta and has not been verified end to end.
       </p>
 
       <h2>5. What we do not collect</h2>
@@ -184,8 +185,11 @@ export default function PrivacyPage() {
           or use &ldquo;Delete all my data&rdquo;.
         </li>
         <li>
-          <strong>On our servers:</strong> until you delete your account or
-          close it, after which we remove your records within{" "}
+          <strong>On our servers:</strong> from the moment you sign in, until
+          you ask us to delete your account and its synced records. In-app
+          account deletion is not available yet, so a deletion request has to be
+          made by email at <span className="legal__todo">[privacy email address]</span>.
+          We remove the records within{" "}
           <span className="legal__todo">[state the period, e.g. 30 days]</span>.
         </li>
         <li>
@@ -217,8 +221,11 @@ export default function PrivacyPage() {
           item in the app, or use &ldquo;Delete all my data&rdquo;.
         </li>
         <li>
-          <strong>Withdraw</strong> &mdash; close your account in the Profile
-          tab. On-device data can be deleted without an account.
+          <strong>Withdraw</strong> &mdash; sign out in the Profile tab to stop
+          syncing on that device. In-app account deletion is not available yet;
+          to have your account and its synced records deleted, write to{" "}
+          <span className="legal__todo">[privacy email address]</span>. On-device
+          data can be deleted without an account.
         </li>
       </ul>
       <p>
