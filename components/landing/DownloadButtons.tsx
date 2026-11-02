@@ -17,6 +17,9 @@
  * publishing. The accessible names and layout will not change when they do.
  */
 import { useSyncExternalStore } from "react";
+import Link from "next/link";
+
+import { Icon } from "@/components/Icons";
 import {
   APK_VERSION,
   DIRECT_APK_URL,
@@ -25,6 +28,28 @@ import {
   storeForDevice,
   type Store,
 } from "@/lib/landing/store";
+
+/**
+ * What the browser can actually do with an Android package. `pending` is the
+ * server's answer: there is no navigator during static export, and treating
+ * the unknown case as "do not offer the APK" means an iPhone never receives
+ * markup it cannot use, even for the moment before hydration.
+ */
+type DeviceKind = "android" | "ios" | "other" | "pending";
+
+const subscribeToNothing = () => () => {};
+
+const deviceOnThisDevice = (): DeviceKind => {
+  if (typeof navigator === "undefined") return "other";
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return "android";
+  if (/iPad|iPhone|iPod/i.test(ua)) return "ios";
+  // iPadOS 13 and later report a desktop Macintosh user agent.
+  if (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1) return "ios";
+  return "other";
+};
+
+const pendingOnServer = (): DeviceKind => "pending";
 
 /** Recognisable without impersonating the official artwork. */
 function PlayGlyph() {
@@ -69,7 +94,11 @@ function Badge({ store, size }: { store: Store; size: "lg" | "md" }) {
   // and reads as broken to assistive tech.
   if (!store.available) {
     return (
-      <span className={className} aria-disabled="true" title={store.unavailableLabel}>
+      <span
+        className={className}
+        aria-disabled="true"
+        title={`${store.name} listing is not live yet`}
+      >
         {inner}
         <span className="lp-badge__soon">{store.platform}</span>
       </span>
@@ -84,8 +113,10 @@ function Badge({ store, size }: { store: Store; size: "lg" | "md" }) {
 }
 
 /**
- * The direct APK link. Only ever rendered where an Android build can be
- * installed, so the label never promises a package the device cannot use.
+ * The direct APK link. Rendered for Android visitors and for desktop visitors
+ * who may be downloading it for a phone, never for an iPhone. The label names
+ * Android explicitly, and the note below the row says the package installs on
+ * Android only.
  */
 function ApkBadge({ size }: { size: "lg" | "md" }) {
   return (
@@ -110,26 +141,36 @@ function ApkBadge({ size }: { size: "lg" | "md" }) {
 /**
  * The two store badges plus a status line.
  *
- * `tone` picks the wording: the hero promises the app, the closing section
- * explains why a tap does nothing yet, and the sticky bar stays quiet.
+ * The APK badge is hidden on iPhone, where an Android package cannot be
+ * installed, and on the server-rendered snapshot, which has no user agent to
+ * read. It appears for Android and desktop visitors once the page hydrates.
  */
 export function DownloadButtons({
   size = "lg",
   align = "center",
   showNote = true,
+  showApk = true,
   className = "",
 }: {
   size?: "lg" | "md";
   align?: "center" | "start";
   showNote?: boolean;
+  /** Off where a separate primary APK button already sits beside this row. */
+  showApk?: boolean;
   className?: string;
 }) {
   const published = STORE_LIST.filter((s) => s.available);
+  const device = useSyncExternalStore(
+    subscribeToNothing,
+    deviceOnThisDevice,
+    pendingOnServer,
+  );
+  const apkVisible = showApk && (device === "android" || device === "other");
 
   return (
     <div className={`lp-downloads lp-downloads--${align} ${className}`}>
       <div className="lp-downloads__row">
-        <ApkBadge size={size} />
+        {apkVisible && <ApkBadge size={size} />}
         {STORE_LIST.map((store) => (
           <Badge key={store.id} store={store} size={size} />
         ))}
@@ -137,18 +178,68 @@ export function DownloadButtons({
       {showNote && (
         <p className="lp-downloads__note">
           {published.length === 0 ? (
-            <>
-              <strong>The Android APK installs today.</strong> Google Play and the
-              App Store listings are on the way.
-            </>
+            device === "ios" ? (
+              <>
+                <strong>The App Store listing is not live yet.</strong> You can
+                use Livanta in Safari and add it to your Home Screen.
+              </>
+            ) : device === "android" ? (
+              <>
+                <strong>The Android APK installs today.</strong> Google Play and
+                the App Store listings are not live yet.
+              </>
+            ) : (
+              <>
+                <strong>The Android APK installs on Android phones.</strong>{" "}
+                Google Play and the App Store listings are not live yet.
+              </>
+            )
           ) : published.length === 1 ? (
-            <>Available on {published[0].name}. The other store is on the way.</>
+            <>Available on {published[0].name}. The other store is not live yet.</>
           ) : (
-            <>Free to download. Your data stays on your device.</>
+            <>Free during the beta. Your data is stored on your device by default.</>
           )}
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * The closing call to action. Android and desktop visitors get the direct APK
+ * beside the web-app link. An iPhone gets only the web-app action, because
+ * there is no App Store listing and an APK cannot be installed there either.
+ */
+export function FinalDownloadCta() {
+  const device = useSyncExternalStore(
+    subscribeToNothing,
+    deviceOnThisDevice,
+    pendingOnServer,
+  );
+
+  if (device !== "android" && device !== "other") {
+    return (
+      <Link className="btn btn--primary btn--lg" href="/">
+        Open Livanta in your browser
+      </Link>
+    );
+  }
+
+  return (
+    <>
+      <a
+        className="btn btn--primary btn--lg"
+        href={DIRECT_APK_URL}
+        rel="noopener noreferrer"
+        download
+      >
+        <Icon name="download" size={18} />
+        {`Download for Android (APK · v${APK_VERSION} · ${apkSizeLabel()})`}
+      </a>
+      <Link className="btn btn--ghost btn--lg" href="/">
+        Try it in your browser
+      </Link>
+    </>
   );
 }
 
@@ -169,7 +260,6 @@ export function DownloadButtons({
    Reading it this way also means no `useState` in an effect, which would paint
    a "Coming soon" bar and then repaint it a moment later the moment a store
    does exist. */
-const subscribeToNothing = () => () => {};
 const noStoreOnServer = () => null;
 const storeOnThisDevice = (): Store | null =>
   storeForDevice(navigator.userAgent, navigator.maxTouchPoints);

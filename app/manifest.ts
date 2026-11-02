@@ -75,19 +75,11 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "maskable",
       },
     ],
-    shortcuts: [
-      {
-        name: "Things",
-        short_name: "Things",
-        description: "Everything you are tracking",
-        url: "/?view=things",
-      },
-      {
-        name: "Calendar",
-        short_name: "Calendar",
-        description: "What is due, and when",
-        url: "/?view=calendar",
-      },
-    ],
+    /**
+     * No shortcuts. The app holds its current screen in local state and never
+     * reads a query parameter, so "/?view=things" and "/?view=calendar" only
+     * ever landed on the home screen. A shortcut that opens the wrong screen is
+     * worse than no shortcut.
+     */
   };
 }

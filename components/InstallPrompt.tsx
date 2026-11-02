@@ -38,7 +38,7 @@ function detectPlatform() {
 }
 
 const ANDROID_APK_URL =
-  "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.0/livanta-0.1.0-release.apk";
+  "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.1/livanta-0.1.1-release.apk";
 
 /**
  * Whether the app is already running as an installed app. Read lazily rather

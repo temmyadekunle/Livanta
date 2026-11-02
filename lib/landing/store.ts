@@ -23,8 +23,8 @@ export const APPLE_APP_STORE_URL = "";
 
 /**
  * Direct Android APK, published as a GitHub release. Verified live on
- * 2026-10-16: HTTP 200, Content-Type application/vnd.android.package-archive,
- * 7,030,891 bytes (v0.1.1, versionCode 5, adds local notification reminders).
+ * 2026-10-29: HTTP 200, Content-Type application/vnd.android.package-archive,
+ * 7,032,943 bytes (v0.1.1, versionCode 5, adds local notification reminders).
  * This is a sideload build, not a store listing, so it lives beside the
  * (still empty) store URLs rather than inside them. iOS devices cannot
  * install it; the download controls only surface it where it works.

@@ -114,8 +114,8 @@ test("manifest shortcuts point at real routes", () => {
   for (const shortcut of manifest().shortcuts ?? []) {
     const path = (shortcut.url ?? "").split("?")[0];
     assert(path.startsWith("/"), `shortcut url must be root-relative: ${shortcut.url}`);
-    // The shell renders these views from the query string rather than as separate
-    // pages, so the path must still be the app root.
+    // The app keeps its screen in local state and reads no query parameter, so
+    // a shortcut can only open the shell; anything else would be a dead end.
     assert(path === "/", `shortcut ${shortcut.name} must stay on the app shell: ${path}`);
   }
 });

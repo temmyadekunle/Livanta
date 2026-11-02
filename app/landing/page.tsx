@@ -6,9 +6,8 @@ import "./landing.css";
 import { Icon, type IconName } from "@/components/Icons";
 import { Logo } from "@/components/Logo";
 import { LandingNav } from "@/components/landing/LandingNav";
-import { DownloadButtons, StickyCta } from "@/components/landing/DownloadButtons";
+import { DownloadButtons, FinalDownloadCta, StickyCta } from "@/components/landing/DownloadButtons";
 import { Faq } from "@/components/landing/Faq";
-import { APK_VERSION, DIRECT_APK_URL, apkSizeLabel } from "@/lib/landing/store";
 import {
   PhoneFrame,
   PhoneHome,
@@ -26,7 +25,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "Livanta — the life admin app for things you have to keep up with",
   description:
-    "Livanta keeps track of your rent, bills, documents, vehicles and service schedules in one place, on your own device. Works offline. Coming soon to Google Play and the App Store.",
+    "Livanta keeps track of your rent, bills, documents, vehicles and service schedules in one place. Works offline. Use it in your browser or install the Android APK.",
   alternates: { canonical: "/landing/" },
   openGraph: {
     type: "website",
@@ -34,7 +33,7 @@ export const metadata: Metadata = {
     siteName: "Livanta",
     title: "Livanta — the life admin app for things you have to keep up with",
     description:
-      "One place for rent, bills, documents, vehicles and service schedules. Works offline, keeps your data on your device.",
+      "One place for rent, bills, documents, vehicles and service schedules. Works offline, local-first by default.",
   },
   twitter: {
     card: "summary_large_image",
@@ -53,7 +52,7 @@ function SectionHead({
   eyebrow,
   title,
   lede,
-  align = "center",
+  align = "start",
 }: {
   eyebrow: string;
   title: string;
@@ -129,7 +128,7 @@ export default function LandingPage() {
               <p className="lp-eyebrow">
                 <span className="lp-pill">
                   <span className="lp-pill__dot" aria-hidden="true" />
-                  Coming soon to Google Play &amp; the App Store
+                  In beta &middot; web app and Android APK
                 </span>
               </p>
               <h1 className="lp-h1">
@@ -138,21 +137,19 @@ export default function LandingPage() {
               </h1>
               <p className="lp-hero__sub">
                 Rent, school fees, licences, insurance, the generator that needs
-                servicing every 90 days. Livanta remembers what is coming so you do
-                not have to hold it all in your head.
+                servicing every few months. Livanta remembers what is coming so you
+                do not have to hold it all in your head.
               </p>
 
               <div className="lp-hero__cta">
                 <a className="btn btn--primary btn--lg" href="#download">
                   <Icon name="download" size={18} />
-                  Download the App
+                  Get the app
                 </a>
                 <Link className="btn btn--ghost btn--lg" href="/">
                   Try it in your browser
                 </Link>
               </div>
-
-              <DownloadButtons size="md" align="start" />
 
               <ul className="lp-promises">
                 <li>
@@ -165,7 +162,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <Icon name="check" size={15} />
-                  Your data stays on your device
+                  Stored on your device by default
                 </li>
               </ul>
             </div>
@@ -185,7 +182,7 @@ export default function LandingPage() {
               </div>
               <div className="lp-hero__chip lp-hero__chip--b">
                 <Icon name="wrench" size={15} />
-                <span>Generator service overdue</span>
+                <span>Generator service due next month</span>
               </div>
             </div>
           </div>
@@ -241,25 +238,11 @@ export default function LandingPage() {
                   <Icon name="checkCircle" size={18} />
                   <span>
                     <strong>Dates it can actually compute.</strong> Enter a due
-                    date once and every related thing is counted from there.
-                  </span>
-                </li>
-                <li>
-                  <Icon name="checkCircle" size={18} />
-                  <span>
-                      <strong>Nothing leaves your phone.</strong> No account,
-                      no server holding your family&apos;s details.
+                    date once and the next one is calculated from it when the
+                    item repeats.
                   </span>
                 </li>
               </ul>
-              <div className="lp-split__cta">
-                <a className="btn btn--primary" href="#download">
-                  Download the App
-                </a>
-                <Link className="btn btn--ghost" href="/">
-                  Open the web app
-                </Link>
-              </div>
             </div>
             <div className="lp-split__art">
               <PhoneFrame
@@ -290,17 +273,19 @@ export default function LandingPage() {
               </li>
               <li className="lp-step">
                 <span className="lp-step__num">2</span>
-                <h3>Set the date or the interval</h3>
+                <h3>Set the date or the repeat</h3>
                 <p>
-                  Give it a due date, or say it repeats every 30, 90 or 180 days.
-                  Livanta works out the next one by itself.
+                  Give it a due date, and say how often it comes back:
+                  weekly, monthly, quarterly, twice a year or yearly. Livanta
+                  works out the next one by itself.
                 </p>
               </li>
               <li className="lp-step">
                 <span className="lp-step__num">3</span>
                 <h3>Get told early enough to act</h3>
                 <p>
-                  Alerts arrive with time to spare, so renewing a licence is a
+                  Reminders fire at the lead times you choose, and alerts
+                  surface as the date approaches, so renewing a licence is a
                   Tuesday errand rather than a crisis.
                 </p>
               </li>
@@ -314,7 +299,7 @@ export default function LandingPage() {
             <div className="lp-split__art">
               <PhoneFrame
                 tab="life"
-                label="Livanta's assets screen, showing tracked items and their service state."
+                label="A Livanta category list showing household and vehicle items and their dates."
               >
                 <PhoneModule moduleId="assets" now={BUILD_NOW} />
               </PhoneFrame>
@@ -323,19 +308,15 @@ export default function LandingPage() {
               <SectionHead
                 align="start"
                 eyebrow="The part that matters most"
-                title="It tracks service, not just dates"
+                title="It handles upkeep, not just one-off dates"
                 lede="Most people can manage a date in a calendar app. What actually slips is maintenance, because it has no fixed date at all."
               />
               <div className="lp-killer__body">
                 <p>
-                  Tell Livanta the generator was serviced 120 days ago and it
-                  comes back every 90. Same for oil changes, tyres, AC servicing
-                  and anything else that decays rather than expires.
-                </p>
-                <p>
-                  An asset can also carry its purchase date and warranty length,
-                  so the app tells you the warranty is about to run out before
-                  you would have thought to check.
+                  Add the generator service as a repeating item and Livanta puts
+                  the next date in your list and alerts you as it approaches.
+                  Same for oil changes, tyres, AC servicing and anything else
+                  that comes back around.
                 </p>
               </div>
             </div>
@@ -348,7 +329,7 @@ export default function LandingPage() {
             <SectionHead
               eyebrow="What is inside"
               title="Built for the whole list, not one niche"
-              lede="Five life areas, and the parts of running a household that fall between them."
+              lede="Bills, documents, vehicles, family dates and the upkeep in between, held in one list."
             />
             <div className="lp-grid-3">
               <FeatureCard icon="home" title="Home and bills">
@@ -357,25 +338,126 @@ export default function LandingPage() {
                 what the next 30 days will cost.
               </FeatureCard>
               <FeatureCard icon="file" title="Documents and dates">
-                Passports, driving licences, visas, certificates. Stored with
-                their expiry dates so you are warned months ahead, not on the day.
+                Passports, driving licences, visas, certificates. Track their
+                expiry dates so you are warned in the month before, not on the
+                day.
               </FeatureCard>
               <FeatureCard icon="car" title="Vehicles">
-                Insurance, MOT, fuel, servicing. Multiple vehicles, each with its
-                own history and its own intervals.
+                Insurance, servicing, fuel and renewal dates, each tracked as
+                its own item rather than buried in a vehicle record.
               </FeatureCard>
               <FeatureCard icon="users" title="Family and school">
-                School fees, birthdays, assignments to a partner. Delegate what
-                you do not want to be the only one tracking.
+                School fees, birthdays and recurring family dates, all in the
+                same list as everything else.
               </FeatureCard>
               <FeatureCard icon="wrench" title="Assets and servicing">
-                Generators, refrigerators, air conditioners. Purchase date,
-                warranty and the service interval that keeps them running.
+                Generators, refrigerators, air conditioners and the servicing
+                they need, tracked alongside the rest of the household.
               </FeatureCard>
               <FeatureCard icon="bell" title="Alerts that respect you">
-                Choose how far ahead to be warned, turn notifications on or off,
-                and keep low-data mode on if you are on a metered connection.
+                Choose what you are notified about, how far ahead reminders fire,
+                and whether background sync may use data.
               </FeatureCard>
+            </div>
+          </div>
+        </section>
+
+        {/* ---------------- Roadmap ---------------- */}
+        {/*
+          The only place on this page that talks about the future, and it is
+          deliberately narrow: three states, no dates, no prices, no numbers.
+          Every line under "Available today" maps to shipped code — add/edit/
+          remove/complete in useLivanta, derivePriority in risk.ts, the alerts
+          and calendar screens, the service worker, and the Profile screen's
+          export and import. The middle card repeats what the FAQ and privacy
+          policy already say about sync, in the same terms. The last card names
+          no feature on purpose: a named feature on a roadmap reads as a promise.
+        */}
+        <section className="lp-section" id="roadmap">
+          <div className="lp-wrap">
+            <SectionHead
+              eyebrow="Where this is going"
+              title="Built in the open, one step at a time"
+              lede="Livanta is early. Here is the honest split between what works today, what is still being finished, and what is only a direction."
+            />
+
+            <div className="lp-grid-3">
+              <article className="lp-card">
+                <p className="lp-roadmap__status lp-roadmap__status--now">
+                  Available today
+                </p>
+                <h3 className="lp-card__title">What works now</h3>
+                <ul className="lp-checks">
+                  <li>
+                    <Icon name="check" size={16} />
+                    <span>
+                      Adding, editing and completing dated responsibilities.
+                    </span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={16} />
+                    <span>
+                      Repeating items that move to their next date when you mark
+                      them handled.
+                    </span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={16} />
+                    <span>
+                      Due dates with derived urgency, so the nearest ones surface
+                      first.
+                    </span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={16} />
+                    <span>Alerts and a month calendar built from your entries.</span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={16} />
+                    <span>
+                      Records grouped into the categories the app supports, with
+                      search and filters.
+                    </span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={16} />
+                    <span>
+                      Using the app offline, because your list lives on your
+                      device.
+                    </span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={16} />
+                    <span>
+                      Exporting your data to a JSON file, and importing it back.
+                    </span>
+                  </li>
+                </ul>
+              </article>
+
+              <article className="lp-card">
+                <p className="lp-roadmap__status">In progress</p>
+                <h3 className="lp-card__title">Optional account sync</h3>
+                <p className="lp-card__body">
+                  Syncing the same list across devices is built into the app and
+                  still being finished. It has not been verified end to end, so
+                  treat it as something under test rather than as a backup. An
+                  account stays optional, and the app works fully without one.
+                </p>
+              </article>
+
+              <article className="lp-card">
+                <p className="lp-roadmap__status">Exploring</p>
+                <h3 className="lp-card__title">A direction, not a feature list</h3>
+                <p className="lp-card__body">
+                  Livanta starts with personal and household admin: the dated,
+                  repeating responsibilities that are easiest to lose track of.
+                  We are exploring whether the same approach can help with work
+                  responsibilities too. That thinking is early and nothing from
+                  it has been committed to the product, so no schedule or price
+                  is attached to it.
+                </p>
+              </article>
             </div>
           </div>
         </section>
@@ -385,19 +467,16 @@ export default function LandingPage() {
           <div className="lp-wrap">
             <SectionHead
               eyebrow="The app"
-              title="Every screen you will actually use"
-              lede="These are the real screens, running on real sample data. Not concept art and not a redesign you will never receive."
+              title="The screens you will use most"
+              lede="These are recreated from the app's own screens and listing logic, running on sample data."
             />
 
-            <div className="lp-screens">
-              <Screen caption="Home tells you what needs you today, not what you own.">
-                <PhoneFrame
-                  tab="home"
-                  label="Livanta's home screen, showing what needs attention and what is coming up."
-                >
-                  <PhoneHome now={BUILD_NOW} />
-                </PhoneFrame>
-              </Screen>
+            <div
+              className="lp-screens"
+              role="group"
+              aria-label="App screens"
+              tabIndex={0}
+            >
               <Screen caption="A month view with your due dates marked.">
                 <PhoneFrame
                   tab="calendar"
@@ -434,7 +513,7 @@ export default function LandingPage() {
                 align="start"
                 eyebrow="What it is about to catch"
                 title="The next thing to become a problem"
-                lede="This is the real list from the app, sorted by deadline. Nothing here is a hypothetical."
+                lede="A sample list, built by the app from sample data and sorted by deadline. It shows the shape of the real thing, not records belonging to a person."
               />
             </div>
             <div className="lp-split__art lp-split__art--flat">
@@ -464,9 +543,9 @@ export default function LandingPage() {
                 another. Both lists live in the same app, offline.
               </FeatureCard>
               <FeatureCard icon="users" title="You are the family organiser">
-                School fees, birthdays, renewals, all shared informally. Livanta
-                makes the whole list legible in one place, so the handoffs are a
-                conversation instead of a chase.
+                School fees, birthdays, renewals, all in one place. Livanta
+                makes the list legible, so the handoffs are a conversation
+                instead of a chase.
               </FeatureCard>
             </div>
           </div>
@@ -477,23 +556,24 @@ export default function LandingPage() {
           <div className="lp-wrap">
             <SectionHead
               eyebrow="Why it is built this way"
-              title="Offline, private, and free"
-              lede="These are product decisions, not marketing lines. Each one costs us something, which is how you can tell they are real."
+              title="Offline, private, and free during the beta"
+              lede="These are product decisions, not marketing lines."
             />
             <div className="lp-grid-3">
-              <FeatureCard icon="cloudOff" title="No server in the middle">
-                Your list is read from your own device. There is no backend to be
-                slow, no account to lose, and no connection required for the app
-                to do its job.
+              <FeatureCard icon="cloudOff" title="Local-first, not cloud-first">
+                Your list is read from your own device. No connection is needed
+                for the app to do its job, and no account is needed to start.
+                Signing in is optional and enables account sync.
               </FeatureCard>
-              <FeatureCard icon="lock" title="Nothing to sell">
-                Because your data never leaves the phone, there is nothing to sell
-                and no incentive to sell it later. Read the{" "}
-                <a href="/privacy/">privacy policy</a>.
+              <FeatureCard icon="lock" title="Not for sale">
+                There is no advertising and no analytics profile. If you sign
+                in, your records are stored with your account; they are not
+                sold. Read the{" "}
+                <a href="/privacy/">privacy policy (draft)</a>.
               </FeatureCard>
-              <FeatureCard icon="wallet" title="Free, with no catch">
-                No subscription, no trial countdown, no feature held hostage. The
-                whole app is the free tier.
+              <FeatureCard icon="wallet" title="Free during the beta">
+                No subscription, no trial countdown, nothing to cancel while
+                the beta runs.
               </FeatureCard>
             </div>
           </div>
@@ -512,16 +592,17 @@ export default function LandingPage() {
               <article className="lp-card lp-card--quote">
                 <p className="lp-quote__label">Beta</p>
                 <p className="lp-card__body">
-                  The app is feature-complete and in testing with the people
-                  building it. Both store submissions are the remaining step.
+                  The web app and the Android build are available. The Google
+                  Play and App Store listings are not live yet, and some parts
+                  of the product are still being finished.
                 </p>
               </article>
               <article className="lp-card lp-card--quote">
                 <p className="lp-quote__label">Built in Nigeria</p>
                 <p className="lp-card__body">
-                  Naira amounts, FRSC licence renewals, Ikeja Electric, school
-                  fees and generators are first-class in the design rather than
-                  bolted on for other markets.
+                  Naira amounts, licence and document renewals, utility bills,
+                  school fees and generators are built in rather than bolted on
+                  for other markets.
                 </p>
               </article>
               <article className="lp-card lp-card--quote">
@@ -534,8 +615,8 @@ export default function LandingPage() {
             </div>
 
             <p className="lp-note">
-              Want to try it before the store release?{" "}
-              <Link href="/">Open the web app</Link> and tap the browser&apos;s
+              Want to try it before the store listings are live?{" "}
+              <Link href="/">Open the web app</Link> and use your browser&apos;s
               add-to-home-screen option. You get the app icon, the full screen and
               the offline support today.
             </p>
@@ -559,26 +640,16 @@ export default function LandingPage() {
             <h2 className="lp-h2">Stop keeping it all in your head</h2>
             <p className="lp-lede">
               Rent, documents, vehicles, servicing. One list, on your phone,
-              working offline, free. Install the Android build directly today;
-              Google Play and the App Store listings are on the way.
+              working offline. Use it in your browser today, or install the
+              Android build directly on an Android phone. Store listings are
+              not live yet.
             </p>
 
             <div className="lp-final__cta">
-              <a
-                className="btn btn--primary btn--lg"
-                href={DIRECT_APK_URL}
-                rel="noopener noreferrer"
-                download
-              >
-                <Icon name="download" size={18} />
-                {`Download for Android (APK · v${APK_VERSION} · ${apkSizeLabel()})`}
-              </a>
-              <Link className="btn btn--ghost btn--lg" href="/">
-                Try it in your browser
-              </Link>
+              <FinalDownloadCta />
             </div>
 
-            <DownloadButtons size="lg" align="center" />
+            <DownloadButtons size="lg" align="center" showApk={false} />
 
             <div className="lp-final__trust">
               <span>
@@ -586,12 +657,8 @@ export default function LandingPage() {
                 No account required
               </span>
               <span>
-                <Icon name="cloudOff" size={14} />
-                Works offline
-              </span>
-              <span>
                 <Icon name="wallet" size={14} />
-                Free
+                Free during beta
               </span>
             </div>
           </div>
@@ -621,18 +688,17 @@ export default function LandingPage() {
             </div>
             <div>
               <p className="lp-footer__label">Legal</p>
-              <a href="/privacy/">Privacy policy</a>
-              <a href="/terms/">Terms of use</a>
+              <a href="/privacy/">Privacy policy (draft)</a>
+              <a href="/terms/">Terms (draft)</a>
             </div>
             <div>
               <p className="lp-footer__label">Your data</p>
-              {/* These actions live in the app's Profile tab. The SPA has no
-                  /#profile-style deep links, so the honest destination is the
-                  app root — anything else would be a fragment that resolves to
-                  nothing. */}
-              <Link href="/">Manage your data</Link>
-              <Link href="/">Export your data</Link>
-              <Link href="/">Sync account</Link>
+              {/* These controls live in the app's Profile tab. There are no
+                  /#profile-style deep links, so the footer explains where to
+                  find them instead of three identical links to the app root. */}
+              <p className="lp-footer__tag">
+                Export, import and delete live in the app&apos;s Profile tab.
+              </p>
             </div>
           </nav>
         </div>
@@ -641,7 +707,7 @@ export default function LandingPage() {
           <p>&copy; {BUILD_NOW.getUTCFullYear()} Livanta. Built in Nigeria.</p>
           <p className="lp-footer__fine">
             Store listings are not live yet. Use the web app, or install the
-            Android APK directly.
+            Android APK on an Android phone.
           </p>
         </div>
       </footer>

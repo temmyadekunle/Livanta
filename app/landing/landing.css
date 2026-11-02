@@ -102,12 +102,23 @@
   margin-bottom: 40px;
 }
 
+/* Left is the page's default alignment: every section head lines up with the
+   cards and copy below it instead of leaving a centred 62ch lede floating
+   under a left-aligned title. */
 .lp-head--start {
   text-align: left;
 }
 
 .lp-head--start .lp-lede {
   margin-inline: 0;
+}
+
+.lp-head--center {
+  text-align: center;
+}
+
+.lp-head--center .lp-lede {
+  margin-inline: auto;
 }
 
 /* ==================================================================
@@ -119,6 +130,9 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  /* Every button on the page clears the project's 44px tap target, including
+     the small nav and sticky-bar variants. */
+  min-height: var(--tap);
   font: inherit;
   font-weight: 600;
   border-radius: var(--radius-pill);
@@ -431,7 +445,9 @@
 }
 
 .lp-hero__chip--a {
-  top: 14%;
+  /* Sits over the top edge of the phone rather than across the greeting the
+     mockup shows under it. */
+  top: 4%;
   left: 0;
   color: var(--warn);
 }
@@ -500,7 +516,9 @@
   background: var(--surface-2);
   border-color: var(--line-strong);
   border-style: dashed;
-  color: var(--ink-400);
+  /* Still visibly unavailable, but dark enough to read as a label rather than
+     as a control that failed to load. */
+  color: var(--ink-500);
   cursor: not-allowed;
 }
 
@@ -608,6 +626,36 @@
 }
 
 /* ==================================================================
+   Roadmap
+   ==================================================================
+   Three states inside the same card grid the rest of the page uses. The
+   status label is the only new control; the body reuses .lp-card__body and
+   .lp-checks, so the section reads as part of the page rather than as a new
+   component.
+   ================================================================== */
+
+.lp-roadmap__status {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink-700);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lp-roadmap__status--now {
+  border-color: var(--brand-100);
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+
+/* ==================================================================
    Split sections
    ================================================================== */
 
@@ -630,11 +678,10 @@
   justify-content: center;
 }
 
-.lp-split__cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding-top: 4px;
+/* The reversed split leads with its phone on desktop. On a phone the heading
+   should come first, so the order flips at the 900px breakpoint below. */
+.lp-split--reverse .lp-split__copy {
+  order: -1;
 }
 
 .lp-checks {
@@ -730,26 +777,47 @@
 
 /* ==================================================================
    Screen gallery
+   ==================================================================
+   On a phone the gallery is a horizontal, snap-scrolling strip rather than
+   three 580px-tall frames stacked down the page. The strip bleeds to the
+   viewport edge (the negative margin cancels .lp-wrap's padding) and each
+   card keeps a readable width, with the next one peeking to show it scrolls.
+   From 620px up there is room for a normal grid.
    ================================================================== */
 
 .lp-screens {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px 16px;
+  display: flex;
+  gap: 16px;
+  margin-inline: -20px;
+  padding: 4px 20px 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 20px;
+  scrollbar-width: thin;
+}
+
+.lp-screens:focus-visible {
+  outline: 3px solid var(--brand-500);
+  outline-offset: 4px;
+  border-radius: var(--radius);
 }
 
 .lp-screen {
+  flex: 0 0 min(80vw, 300px);
   margin: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
+  scroll-snap-align: start;
 }
 
 .lp-screen__cap {
   max-width: 30ch;
   font-size: 0.875rem;
-  color: var(--ink-400);
+  /* --ink-500, not --ink-400: at 14px the lighter step misses AA on --bg. */
+  color: var(--ink-500);
   text-align: center;
   text-wrap: pretty;
 }
@@ -799,7 +867,7 @@
 
 .lp-upcoming__meta {
   font-size: 0.8125rem;
-  color: var(--ink-400);
+  color: var(--ink-500);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1070,16 +1138,18 @@
 
 .lp-sticky__text span {
   font-size: 0.8125rem;
-  color: var(--ink-400);
+  color: var(--ink-500);
 }
 
 /*
- * When the sticky bar is on screen it would otherwise sit over the footer's
- * last line, so the page keeps that clearance at every breakpoint where the bar
- * exists. The short-viewport query at the bottom removes the bar instead.
+ * Clearance for the sticky bar only when the bar is actually in the document.
+ * The bar is decided in the browser (Android only, while no store listing
+ * exists), so it is absent on iPhones and desktops; a fixed padding there left
+ * an unexplained band of empty space under the footer. `:has()` lets the layout
+ * follow the DOM instead of guessing from the viewport width.
  */
-.lp .lp-footer {
-  padding-bottom: 92px;
+.lp:has(.lp-sticky) .lp-footer {
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
 }
 
 /* ==================================================================
@@ -1204,6 +1274,16 @@
   font-size: 0.875rem;
 }
 
+/*
+ * .grid--4 turns into four columns at a 416px viewport, which says nothing
+ * about this ~280px frame: four tiles here leave about 37px of text width and
+ * clip "Document" and "Reminder". Show the layout the app itself uses on a
+ * narrow phone instead of shrinking the labels to fit.
+ */
+.lp-phone .grid--4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* Calendar grid, built by PhoneCalendar */
 
 .lp-cal {
@@ -1289,6 +1369,32 @@
   .lp-steps {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  /* Enough width for a grid again, so the strip stops scrolling. */
+  .lp-screens {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 16px;
+    margin-inline: 0;
+    padding: 0;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+
+  .lp-screen {
+    flex: none;
+  }
+}
+
+/*
+ * Two columns cannot hold the third screen side by side until 900px, so in
+ * between it would sit alone against the left edge. Span both columns instead:
+ * .lp-screen centres its own contents, so the odd card lands under the gap.
+ */
+@media (min-width: 620px) and (max-width: 899.98px) {
+  .lp-screens > .lp-screen:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (min-width: 780px) {
@@ -1298,10 +1404,6 @@
 
   .lp-grid-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .lp-screens {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .lp-footer__inner {
@@ -1346,7 +1448,21 @@
     order: -1;
   }
 
-  .lp .lp-footer {
+  .lp-split--reverse .lp-split__copy {
+    order: 0;
+  }
+
+  .lp-screens {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* The bar is a phone affordance; on a wide screen the closing CTA already
+     covers the same job without hovering over the footer. */
+  .lp-sticky {
+    display: none;
+  }
+
+  .lp:has(.lp-sticky) .lp-footer {
     padding-bottom: 32px;
   }
 }
@@ -1357,16 +1473,9 @@
   }
 }
 
-/*
- * Narrow phones. The hero and split layouts collapse to one column well before
- * the device gets small, and the two-column screen gallery becomes a single
- * column so a mockup is never squeezed below the width it was designed at.
- */
+/* Narrow phones: the two hero actions stack full width so neither wraps into a
+   cramped half-button. */
 @media (max-width: 420px) {
-  .lp-screens {
-    grid-template-columns: 1fr;
-  }
-
   .lp-hero__cta .btn,
   .lp-final__cta .btn {
     width: 100%;
@@ -1380,5 +1489,9 @@
 @media (max-height: 520px) {
   .lp-sticky {
     display: none;
+  }
+
+  .lp:has(.lp-sticky) .lp-footer {
+    padding-bottom: 32px;
   }
 }

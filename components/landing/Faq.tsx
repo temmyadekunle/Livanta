@@ -23,9 +23,9 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Is Livanta free?",
     a: (
       <>
-        Yes. Everything described on this page works for free, and there is no
-        trial to start and nothing to cancel. Livanta does not charge for the
-        features that matter: the thing itself, the reminders, and the dates.
+        Yes, during the beta. There is no subscription, no trial to start and
+        nothing to cancel today. If paid plans arrive later, the terms will say
+        so before anything is charged.
       </>
     ),
   },
@@ -34,9 +34,9 @@ export const FAQ_ITEMS: FaqItem[] = [
     a: (
       <>
         Yes, and that is the normal case rather than a fallback. Livanta keeps
-        everything on your own device, so it opens and works on a bad network or
-        with data switched off entirely. You are not waiting on a server to see
-        your own records.
+        your records on your own device by default, so it opens and works on a
+        bad network or with data switched off entirely. If you sign in, syncing
+        needs a connection; using the app does not.
       </>
     ),
   },
@@ -44,9 +44,10 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Where is my data stored, and who can see it?",
     a: (
       <>
-        On your device. Livanta does not upload your list, and there is no
-        analytics profile being built about what you own or when it is due. You
-        can export everything as a file at any time from the Profile screen.
+        On your device by default. Nothing is uploaded unless you create an
+        account and sign in. If you do, your records sync to your account, and
+        that sync is still being finished in the beta. You can export everything
+        as a JSON file at any time from the Profile screen.
       </>
     ),
   },
@@ -54,9 +55,10 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Do I need an account?",
     a: (
       <>
-        No. Sign-in is entirely optional. You can add fifty things over three
-        years without ever giving Livanta an email address. Optional sync across
-        devices is on the roadmap, but the app is complete and useful without it.
+        No. Sign-in is optional and you can use Livanta without giving it an
+        email address. Optional sync exists for people who want the same list on
+        more than one device, but it is still being finished and the app is
+        fully usable without it.
       </>
     ),
   },
@@ -64,10 +66,11 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "What happens if I lose or replace my phone?",
     a: (
       <>
-        Because your data lives on the device, it lives and dies with the device.
-        That is the trade-off of the local-first design, and the honest version of
-        that sentence is that you should export your data now and then from
-        Profile, and keep the file. Backup and restore arrive with sync.
+        Because your data lives on the device by default, it can be lost with
+        the device. That is the trade-off of the local-first design, and the
+        honest version of that sentence is that you should export your data now
+        and then from Profile, and keep the file. Sync is still being finished,
+        so it should not be your only backup.
       </>
     ),
   },
@@ -75,9 +78,10 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Which devices are supported?",
     a: (
       <>
-        Android and iPhone. Both store versions are in final testing now. In the
-        meantime the app runs in any modern browser and can be added to your home
-        screen, which gives you the app icon and full-screen use today.
+        Livanta runs in any modern browser on Android, iPhone and desktop. On
+        Android you can also install the APK directly. On iPhone, use Safari and
+        add Livanta to your Home Screen. The Google Play and App Store listings
+        are not live yet.
       </>
     ),
   },
@@ -85,10 +89,10 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Will it remind me about service intervals, not just dates?",
     a: (
       <>
-        Yes. A generator serviced every 90 days or a car oil change every four
-        months is a different problem from a bill with a due date, and Livanta
-        tracks both. It also handles repeating things like rent or subscriptions
-        on their own schedule.
+        It handles recurring schedules. Set an item to repeat weekly, monthly,
+        quarterly, twice a year or yearly, and Livanta computes the next date
+        from the one you entered. That covers servicing that comes back around,
+        as well as rent and subscriptions.
       </>
     ),
   },
@@ -96,7 +100,7 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Can I share a list with my family?",
     a: (
       <>
-        Not yet. Livanta is a personal list today — one device, one owner.
+        Not yet. Livanta is a personal list today — one owner.
         Shared household accounts, member roles, and assigning an item to
         someone else are planned, but nothing ships in that direction until the
         data model and the privacy story both hold up.
@@ -107,11 +111,10 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Do you sell my data?",
     a: (
       <>
-        No. Livanta has nothing to sell because your list never leaves your
-        device. Read the{" "}
-        <a href="/privacy/">privacy policy</a> for the detail, including the
-        short version: we are not an advertising company and we do not build a
-        profile of you.
+        No. Livanta has no advertising and no analytics profile, and we do not
+        sell your data. If you sign in, your records are stored with your account
+        so they can sync; that is not a data-sale business. Read the{" "}
+        <a href="/privacy/">privacy policy (draft)</a> for the detail.
       </>
     ),
   },

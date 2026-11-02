@@ -68,7 +68,11 @@ export function PhoneFrame({
               <Icon name="zap" size={12} />
             </span>
           </div>
-          <div className="lp-phone__body">{children}</div>
+          {/* `inert` keeps the real screen's inputs and buttons out of the tab
+              order and the click path: this is a picture of the app, not a
+              second working copy. The captions sit outside it, so they stay
+              readable to assistive tech. */}
+          <div className="lp-phone__body" inert>{children}</div>
           <nav className="lp-bottomnav" aria-hidden="true">
             {TABS.map((t) => (
               <span
