@@ -1,4 +1,4 @@
-import { getSetting, putSetting } from "./db.ts";
+import { anonymousStore, type LocalStore } from "./db.ts";
 import { isAvatarDataUrl } from "./avatar.ts";
 import { DEFAULT_LOCALE, isLocale, type Locale } from "./i18n.ts";
 import type { Category } from "./types.ts";
@@ -41,9 +41,13 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const KEY = "settings";
 
-export async function loadSettings(): Promise<Settings> {
+// The no-store overload preserves legacy calls; explicit stores never fall back.
+export function loadSettings(): Promise<Settings>;
+export function loadSettings(store: LocalStore): Promise<Settings>;
+export async function loadSettings(...args: [] | [store: LocalStore]): Promise<Settings> {
+  const store = args.length === 0 ? anonymousStore : args[0];
   try {
-      const stored = await getSetting<Partial<Settings>>(KEY);
+      const stored = await store.getSetting<Partial<Settings>>(KEY);
       const merged = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
       if (!isLocale(merged.locale)) merged.locale = DEFAULT_LOCALE;
       // Settings can be restored from an export, arrive by sync, or predate this
@@ -56,6 +60,12 @@ export async function loadSettings(): Promise<Settings> {
   }
 }
 
-export async function saveSettings(settings: Settings): Promise<void> {
-  await putSetting(KEY, settings);
+// Only the legacy one-argument call selects anonymous storage.
+export function saveSettings(settings: Settings): Promise<void>;
+export function saveSettings(store: LocalStore, settings: Settings): Promise<void>;
+export async function saveSettings(
+  ...args: [settings: Settings] | [store: LocalStore, settings: Settings]
+): Promise<void> {
+  const [store, settings] = args.length === 1 ? [anonymousStore, args[0]] : args;
+  await store.putSetting(KEY, settings);
 }

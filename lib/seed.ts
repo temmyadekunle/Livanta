@@ -1,5 +1,5 @@
 import { buildAlerts, derivePriority } from "./risk.ts";
-import { newId, putAlert, putThing } from "./db.ts";
+import { anonymousStore, newId, type LocalStore } from "./db.ts";
 import type { HouseholdMember, Thing } from "./types.ts";
 
 function iso(daysFromNow: number): string {
@@ -212,18 +212,21 @@ export const SEED_MEMBERS: HouseholdMember[] = [
   },
 ];
 
-export async function seedIfEmpty(): Promise<Thing[]> {
-  const existing = await import("./db.ts").then((m) => m.getAllThings());
+// The no-store overload preserves legacy calls; explicit stores never fall back.
+export function seedIfEmpty(): Promise<Thing[]>;
+export function seedIfEmpty(store: LocalStore): Promise<Thing[]>;
+export async function seedIfEmpty(...args: [] | [store: LocalStore]): Promise<Thing[]> {
+  const store = args.length === 0 ? anonymousStore : args[0];
+  const existing = await store.getAllThings();
   if (existing.length > 0) return existing;
 
   const things = SEED_THINGS.map(make);
-  for (const thing of things) await putThing(thing);
+  for (const thing of things) await store.putThing(thing);
 
-  const { putMember } = await import("./db.ts");
-  for (const member of SEED_MEMBERS) await putMember(member);
+  for (const member of SEED_MEMBERS) await store.putMember(member);
 
   const alerts = buildAlerts(things);
-  for (const alert of alerts) await putAlert(alert);
+  for (const alert of alerts) await store.putAlert(alert);
 
   return things;
 }
