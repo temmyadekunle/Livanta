@@ -9,7 +9,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { LocalStore } from "./db.ts";
 import { runSync, type SyncPhase, type SyncResult } from "./sync/engine.ts";
+import { bindSyncOwner, releaseSyncOwner } from "./sync/meta.ts";
+import {
+  resolveSyncSuspension,
+  type SyncSuspensionReason,
+} from "./sync/suspension.ts";
 import { useAuth } from "./useAuth.ts";
 
 export interface UseCloudSync {
@@ -19,6 +25,9 @@ export interface UseCloudSync {
   lastResult: SyncResult | null;
   online: boolean;
   dataSaver: boolean;
+  /** True when auth or the account store is not ready, so nothing may sync. */
+  suspended?: boolean;
+  suspendedReason?: SyncSuspensionReason | null;
   /** Called when a cycle pulled changes down, so the app re-reads local data. */
   bindRefresh: (refresh: () => void) => void;
   /** Queue a sync, coalescing rapid calls. */
@@ -30,6 +39,12 @@ const DEBOUNCE_MS = 2000;
 
 export interface CloudSyncOptions {
   /**
+   * The account database currently shown by the app. Sync stays suspended
+   * until this exists and belongs to the signed-in account; it never falls
+   * back to the anonymous database.
+   */
+  store?: LocalStore | null;
+  /**
    * When the user has asked for low-data mode, background syncing is skipped.
    * The Profile screen promises that data saver keeps sync off, so this has to
    * be honoured or the copy is a lie. An explicit "Sync now" still runs.
@@ -37,15 +52,40 @@ export interface CloudSyncOptions {
   dataSaver?: boolean;
 }
 
-export function useCloudSync({ dataSaver = false }: CloudSyncOptions = {}): UseCloudSync {
-  const { enabled, status } = useAuth();
+export function useCloudSync({
+  store = null,
+  dataSaver = false,
+}: CloudSyncOptions = {}): UseCloudSync {
+  const { enabled, status, user } = useAuth();
   const signedIn = status === "signed-in";
+
+  const suspension = resolveSyncSuspension({
+    enabled,
+    status,
+    userId: user?.id ?? null,
+    store,
+  });
+  const suspended = suspension.suspended;
+  const suspendedReason = suspension.suspended ? suspension.reason : null;
+  const activeOwnerId = suspension.suspended ? null : suspension.owner.userId;
 
   const [phase, setPhase] = useState<SyncPhase>("idle");
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
   const [online, setOnline] = useState(
     () => typeof window === "undefined" || window.navigator.onLine,
   );
+
+  // Mutation bookkeeping follows the account store that sync is actually using.
+  // A suspended cycle binds nothing, and teardown releases only the owner this
+  // effect installed.
+  useEffect(() => {
+    if (suspended) {
+      bindSyncOwner(null);
+      return;
+    }
+    const owner = bindSyncOwner(activeOwnerId);
+    return () => releaseSyncOwner(owner);
+  }, [suspended, activeOwnerId]);
 
   useEffect(() => {
     const goOnline = () => setOnline(true);
@@ -67,7 +107,7 @@ export function useCloudSync({ dataSaver = false }: CloudSyncOptions = {}): UseC
   }, []);
 
   const syncNow = useCallback(async () => {
-    if (!enabled || !signedIn) return;
+    if (suspended || !store) return;
     // A cycle already in flight will pick up anything queued behind it, so
     // overlapping cycles are skipped rather than queued.
     if (runningRef.current) return;
@@ -75,7 +115,10 @@ export function useCloudSync({ dataSaver = false }: CloudSyncOptions = {}): UseC
     runningRef.current = true;
     setPhase("syncing");
     try {
-      const result = await runSync(() => refreshRef.current?.());
+      const result = await runSync({
+        store,
+        onChanged: () => refreshRef.current?.(),
+      });
       setLastResult(result);
       setPhase("done");
     } catch {
@@ -85,30 +128,39 @@ export function useCloudSync({ dataSaver = false }: CloudSyncOptions = {}): UseC
     } finally {
       runningRef.current = false;
     }
-  }, [enabled, signedIn]);
+  }, [store, suspended]);
 
   const scheduleSync = useCallback(() => {
-    if (!enabled || !signedIn) return;
+    if (suspended || !store) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
       void syncNow();
     }, DEBOUNCE_MS);
-  }, [enabled, signedIn, syncNow]);
+  }, [store, suspended, syncNow]);
 
-  // First cycle once a session exists, which is also when local data is
-  // uploaded for the first time.
+  // First cycle once a session and its account store exist.
   useEffect(() => {
-    if (!enabled || !signedIn) return;
+    if (suspended || !store) return;
     void syncNow();
-  }, [enabled, signedIn, syncNow]);
+  }, [store, suspended, syncNow]);
+
+  // A queued cycle belongs to the account that queued it. Suspension cancels it
+  // before it can open a different database.
+  useEffect(() => {
+    if (!suspended) return;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, [suspended]);
 
   // A household app is mostly left open on a phone and on a laptop, so
   // catching up when the tab becomes visible is the sync that matters. It is
   // skipped in low-data mode, where the user has asked Livanta to stay quiet
   // unless they trigger it themselves.
   useEffect(() => {
-    if (!enabled || !signedIn) return;
+    if (suspended || !store) return;
 
     const onVisible = () => {
       if (dataSaver) return;
@@ -124,7 +176,7 @@ export function useCloudSync({ dataSaver = false }: CloudSyncOptions = {}): UseC
       window.removeEventListener("focus", onVisible);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [enabled, signedIn, dataSaver, syncNow]);
+  }, [store, suspended, dataSaver, syncNow]);
 
   return {
     enabled,
@@ -133,6 +185,8 @@ export function useCloudSync({ dataSaver = false }: CloudSyncOptions = {}): UseC
     lastResult,
     online,
     dataSaver,
+    suspended,
+    suspendedReason,
     bindRefresh,
     scheduleSync,
     syncNow,
