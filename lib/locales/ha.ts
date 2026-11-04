@@ -480,6 +480,11 @@ export const ha: Dict = {
   "profile.aboutSub": "Sigawa, mai buga da sharuɗɗa",
   "profile.more": "Ƙari",
 
+  "auth.welcomeTitle": "Barka da zuwa Livanta",
+  "auth.welcomeBlurb": "Alhuzun kowane rana, sun karkata a wuri ɗaya.",
+  "auth.checking": "Ana duba asusunka…",
+  "auth.sessionErrorTitle": "Ba mu iya duba asusunka ba",
+  "auth.sessionErrorBody": "Babu abin da ya canza a wannan na'ura. Duba haɗin yanar gizo sannan ka sake gwadawa.",
   "auth.signInTitle": "Shiga",
   "auth.signUpTitle": "Ƙirƙiri asusun",
   "auth.forgotTitle": "Sake saita kalmar sirri",
@@ -505,6 +510,9 @@ export const ha: Dict = {
   "auth.resetSent": "An aika mahaɗin sake saita",
   "auth.resetSentBody": "Bi mahaɗin da ke a imel don ka zaɓi sabuwar kalmar sirri.",
   "auth.signedInToast": "An shiga. Ana sanya tare…",
-  "auth.signedUpToast": "An ƙirƙiri asusun. Duba imel don ka tabbatar da shi.",
+  "auth.signedUpToast": "An ƙirƙiri asusun. Ka shiga.",
   "auth.passwordUpdated": "Kalmar sirri an sabunta. Ka shiga.",
+  "auth.recoveryEndedTitle": "Mahaɗin sabunta kalmar sirri ya ƙare",
+  "auth.recoveryEndedBody": "Ka sake shiga, ko ka nemi sabon mahaɗi.",
+  "auth.signOutFailed": "Ba a iya fita ba. Duba haɗin yanar gizo sannan ka sake gwadawa.",
 };

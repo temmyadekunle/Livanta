@@ -21,14 +21,41 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { User } from "@supabase/supabase-js";
 
 import { getSupabase, isCloudEnabled } from "./supabase/client.ts";
+import { createSessionAttempts, withTimeout } from "./sessionTimeout.ts";
+import { performSignOut } from "./signOut.ts";
 
-export type AuthStatus = "disabled" | "loading" | "signed-out" | "signed-in";
+/**
+ * `error` is a terminal fail-closed state: the persisted session could not be
+ * read, so the app must not guess whether someone is signed in. It is only
+ * left through an explicit retry, which moves back to `loading`.
+ */
+export type AuthStatus =
+  | "disabled"
+  | "loading"
+  | "signed-out"
+  | "signed-in"
+  | "error";
 
 export interface AuthError {
   /** A key from the translation catalogue, so the UI stays multilingual. */
-  code: "invalid-credentials" | "email-taken" | "rate-limited" | "unknown";
+  code:
+    | "invalid-credentials"
+    | "email-taken"
+    | "rate-limited"
+    | "sign-out-failed"
+    | "unknown";
   message: string;
 }
+
+/**
+ * Sign-up reports the confirmation requirement as part of its result rather
+ * than only through the store. A component that reads the store immediately
+ * after awaiting the call is still holding the pre-submit render's snapshot,
+ * which made a confirmation-required sign-up claim the user was signed in.
+ */
+export type SignUpOutcome =
+  | { readonly ok: true; readonly needsEmailConfirmation: boolean }
+  | { readonly ok: false };
 
 export interface UseAuth {
   enabled: boolean;
@@ -44,13 +71,21 @@ export interface UseAuth {
    */
   passwordResetReady: boolean;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signUp: (email: string, password: string) => Promise<boolean>;
+  signUp: (email: string, password: string) => Promise<SignUpOutcome>;
   /** Sends a password-reset email. */
   resetPassword: (email: string) => Promise<boolean>;
   /** Completes a reset once the user has followed the emailed link. */
   updatePassword: (password: string) => Promise<boolean>;
+  /**
+   * Leaves the recovery flow when the session it depended on is gone, so the
+   * user can get back to an ordinary sign-in instead of facing a form that can
+   * never succeed.
+   */
+  cancelPasswordReset: () => void;
   signOut: () => Promise<void>;
   clearError: () => void;
+  /** Re-reads the persisted session after an initialization failure. */
+  retrySession: () => Promise<void>;
   /** Sign in with Google OAuth. */
   signInWithGoogle: () => Promise<boolean>;
   /** Sign in with Apple OAuth. */
@@ -76,6 +111,34 @@ function toAuthError(error: { message: string } | null): AuthError {
   return { code: "unknown", message };
 }
 
+/**
+ * The "confirm your email" prompt has to outlive a re-render and a reload,
+ * otherwise the only signal is a toast that disappears before the user can
+ * find the message. Only a boolean is stored: no address or token.
+ */
+const PENDING_CONFIRMATION_KEY = "livanta.auth.pendingConfirmation.v1";
+
+function readPendingConfirmation(): boolean {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(PENDING_CONFIRMATION_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writePendingConfirmation(pending: boolean): void {
+  try {
+    if (typeof window === "undefined") return;
+    if (pending) window.localStorage.setItem(PENDING_CONFIRMATION_KEY, "1");
+    else window.localStorage.removeItem(PENDING_CONFIRMATION_KEY);
+  } catch {
+    /* private browsing */
+  }
+}
+
 interface AuthState {
   status: AuthStatus;
   user: User | null;
@@ -90,7 +153,7 @@ function initialState(): AuthState {
     status: isCloudEnabled() ? "loading" : "disabled",
     user: null,
     error: null,
-    needsEmailConfirmation: false,
+    needsEmailConfirmation: isCloudEnabled() && readPendingConfirmation(),
     passwordResetReady: false,
   };
 }
@@ -110,20 +173,80 @@ function emit(patch: Partial<AuthState>) {
 
 const getSnapshot = () => state;
 
+/**
+ * Reads the persisted session and publishes a definitive status. Any failure
+ * lands in `error` rather than staying in `loading`: an unreadable session is
+ * not evidence of being signed out, and it is certainly not permission to show
+ * the dashboard.
+ *
+ * The read is bounded so a storage backend that never answers cannot hold the
+ * app on the splash screen. Every settle also checks an attempt token, so a
+ * response from an older read can never overwrite a newer retry or an auth
+ * event that arrived while the read was in flight.
+ */
+const sessionAttempts = createSessionAttempts();
+
+async function applySession(): Promise<void> {
+  const attempt = sessionAttempts.begin();
+  const supabase = getSupabase();
+  if (!supabase) {
+    if (sessionAttempts.current(attempt)) {
+      emit({ user: null, status: "error" });
+    }
+    return;
+  }
+
+  try {
+    const { data, error } = await withTimeout(supabase.auth.getSession());
+    if (error) throw error;
+    if (!sessionAttempts.current(attempt)) return;
+
+    if (data.session) {
+      writePendingConfirmation(false);
+      emit({
+        user: data.session.user,
+        status: "signed-in",
+        needsEmailConfirmation: false,
+      });
+    } else {
+      emit({ user: null, status: "signed-out" });
+    }
+  } catch {
+    if (!sessionAttempts.current(attempt)) return;
+    emit({ user: null, status: "error" });
+  }
+}
+
 function start() {
   if (started) return;
   started = true;
 
   if (!isCloudEnabled()) return;
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase) {
+    emit({ user: null, status: "error" });
+    return;
+  }
 
   // Deliberately not torn down when the last hook unmounts. Tearing it down
   // would drop the session mid-navigation and re-run getSession on every mount,
   // which is the churn the shared store exists to remove. Supabase's
   // subscription lives for the lifetime of the page, as it would in any app.
   supabase.auth.onAuthStateChange((event, session) => {
-    emit({ user: session?.user ?? null, status: session ? "signed-in" : "signed-out" });
+    // An auth event is strictly newer than any session read still in flight,
+    // so the read's answer must not land on top of it.
+    sessionAttempts.invalidate();
+
+    if (session) {
+      writePendingConfirmation(false);
+      emit({
+        user: session.user,
+        status: "signed-in",
+        needsEmailConfirmation: false,
+      });
+    } else {
+      emit({ user: null, status: "signed-out" });
+    }
 
     // A recovery link establishes a real session, so `status` alone reads as an
     // ordinary sign-in and the app would show the signed-in screen instead of
@@ -135,12 +258,12 @@ function start() {
     }
   });
 
-  void supabase.auth.getSession().then(({ data: sessionData }) => {
-    emit({
-      user: sessionData.session?.user ?? null,
-      status: sessionData.session ? "signed-in" : "signed-out",
-    });
-  });
+  void applySession();
+}
+
+async function retrySession(): Promise<void> {
+  emit({ status: "loading", user: null });
+  await applySession();
 }
 
 function subscribe(listener: () => void) {
@@ -168,28 +291,35 @@ export function useAuth(): UseAuth {
       emit({ error: toAuthError(signInError) });
       return false;
     }
+    writePendingConfirmation(false);
+    emit({ needsEmailConfirmation: false });
     return true;
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    emit({ error: null, needsEmailConfirmation: false });
-    const supabase = getSupabase();
-    if (!supabase) return false;
+  const signUp = useCallback(
+    async (email: string, password: string): Promise<SignUpOutcome> => {
+      emit({ error: null, needsEmailConfirmation: false });
+      const supabase = getSupabase();
+      if (!supabase) return { ok: false };
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-    });
-    if (signUpError) {
-      emit({ error: toAuthError(signUpError) });
-      return false;
-    }
-    // When email confirmation is switched on in the Supabase project there is
-    // no session yet. Say so, otherwise the screen would look like nothing
-    // happened after a successful sign-up.
-    if (!data.session && data.user) emit({ needsEmailConfirmation: true });
-    return true;
-  }, []);
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      if (signUpError) {
+        emit({ error: toAuthError(signUpError) });
+        return { ok: false };
+      }
+      // When email confirmation is switched on in the Supabase project there is
+      // no session yet. Say so, and keep saying so across reloads, otherwise the
+      // only signal is a toast that disappears before the user can act on it.
+      const needsEmailConfirmation = !data.session && Boolean(data.user);
+      writePendingConfirmation(needsEmailConfirmation);
+      emit({ needsEmailConfirmation });
+      return { ok: true, needsEmailConfirmation };
+    },
+    [],
+  );
 
   const resetPassword = useCallback(async (email: string) => {
     emit({ error: null });
@@ -226,11 +356,35 @@ export function useAuth(): UseAuth {
     return true;
   }, []);
 
+  const cancelPasswordReset = useCallback(() => {
+    emit({ passwordResetReady: false, error: null });
+  }, []);
+
   const signOut = useCallback(async () => {
-    emit({ needsEmailConfirmation: false, passwordResetReady: false });
+    // A session read that was already in flight is older than this sign-out
+    // attempt and must not restore the session after it completes.
+    sessionAttempts.invalidate();
+    emit({ error: null });
     const supabase = getSupabase();
-    if (!supabase) return;
-    await supabase.auth.signOut();
+    const result = await performSignOut(supabase);
+    if (!result.ok) {
+      // The session is still the one in hand, so the flags stay as they are and
+      // the user sees why signing out did not happen.
+      emit({
+        error: { code: "sign-out-failed", message: result.message },
+      });
+      return;
+    }
+    writePendingConfirmation(false);
+    // Supabase normally emits SIGNED_OUT as well, but publishing the result
+    // here means a successful sign-out is reflected immediately even if that
+    // event is delayed.
+    emit({
+      user: null,
+      status: "signed-out",
+      needsEmailConfirmation: false,
+      passwordResetReady: false,
+    });
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
@@ -282,8 +436,10 @@ export function useAuth(): UseAuth {
     signUp,
     resetPassword,
     updatePassword,
+    cancelPasswordReset,
     signOut,
     clearError,
+    retrySession,
     signInWithGoogle,
     signInWithApple,
   };

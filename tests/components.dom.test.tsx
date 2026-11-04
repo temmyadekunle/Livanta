@@ -11,6 +11,7 @@ import type { Root } from "react-dom/client";
 
 import { assert, makeThing } from "./helpers.ts";
 import type { useLivanta } from "../lib/useLivanta.ts";
+import type { UseAuth } from "../lib/useAuth.ts";
 
 register("./tsx-loader.mjs", import.meta.url);
 
@@ -37,6 +38,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 
 const { default: Onboarding } = await import("../components/Onboarding.tsx");
+const { AuthScreen } = await import("../components/AuthScreen.tsx");
 const { QuickAddSheet } = await import("../components/QuickAdd.tsx");
 const { ThingsScreen } = await import("../components/screens/ThingsScreen.tsx");
 const { CalendarScreen } = await import("../components/screens/CalendarScreen.tsx");
@@ -395,4 +397,206 @@ test("CalendarScreen", async (t) => {
     assert.ok(view.text().includes(en["cal.emptyTitle"]));
     view.unmount();
   });
+});
+
+test("AuthScreen welcome mode continues into create account and sign in", async (t) => {
+  const authStub = (overrides: Partial<UseAuth> = {}): UseAuth => ({
+    enabled: true,
+    status: "signed-out",
+    user: null,
+    error: null,
+    needsEmailConfirmation: false,
+    passwordResetReady: false,
+    signIn: async () => true,
+    signUp: async () => ({ ok: true, needsEmailConfirmation: false }),
+    resetPassword: async () => true,
+    updatePassword: async () => true,
+    cancelPasswordReset: () => {},
+    signOut: async () => {},
+    clearError: () => {},
+    retrySession: async () => {},
+    signInWithGoogle: async () => true,
+    signInWithApple: async () => true,
+    ...overrides,
+  });
+
+  await t.test("create account opens the registration form", () => {
+    const view = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub()}
+        initialMode="welcome"
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    );
+    assert.ok(view.text().includes(en["auth.welcomeTitle"]));
+    view.click("button.btn--primary");
+    assert.ok(view.container.querySelector("#a-email"), "email field after Create account");
+    assert.ok(view.text().includes(en["auth.passwordHint"]), "password rules shown");
+    assert.ok(
+      !/continue without an account/i.test(view.text()),
+      "the gate must not offer an offline escape",
+    );
+    view.unmount();
+  });
+
+  await t.test("sign in opens the credential form with a forgot-password link", () => {
+    const view = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub()}
+        initialMode="welcome"
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    );
+    view.click("button.btn--secondary");
+    assert.ok(view.container.querySelector("#a-email"));
+    assert.ok(view.text().includes(en["auth.forgotLink"]));
+    view.unmount();
+  });
+
+  await t.test("welcome offers no action that leaves authentication", () => {
+    const view = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub()}
+        initialMode="welcome"
+        onDone={() => {}}
+      />,
+    );
+    const buttons = [...view.container.querySelectorAll("button")];
+    assert.equal(buttons.length, 2, "only create account and sign in");
+    assert.ok(
+      !buttons.some((b) => b.className.includes("btn--ghost")),
+      "no ghost escape button",
+    );
+    view.unmount();
+  });
+
+  await t.test("a pending confirmation stays on screen in sign-up mode", () => {
+    const view = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub({ needsEmailConfirmation: true })}
+        initialMode="sign-up"
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    );
+    assert.ok(view.text().includes(en["auth.checkEmailTitle"]));
+    assert.ok(view.text().includes(en["auth.checkEmailBody"]));
+    view.unmount();
+  });
+
+  await t.test("a signed-in session never lands on the welcome chooser", () => {
+    const view = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub({
+          status: "signed-in",
+          user: { email: "a@b.co" } as UseAuth["user"],
+        })}
+        initialMode="welcome"
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    );
+    assert.ok(!view.text().includes(en["auth.welcomeTitle"]));
+    assert.ok(view.text().includes("a@b.co"));
+    view.unmount();
+  });
+});
+
+test("sign-up requiring confirmation never claims the user is signed in", async () => {
+  const authStub = (overrides: Partial<UseAuth> = {}): UseAuth => ({
+    enabled: true,
+    status: "signed-out",
+    user: null,
+    error: null,
+    needsEmailConfirmation: false,
+    passwordResetReady: false,
+    signIn: async () => true,
+    signUp: async () => ({ ok: true, needsEmailConfirmation: true }),
+    resetPassword: async () => true,
+    updatePassword: async () => true,
+    cancelPasswordReset: () => {},
+    signOut: async () => {},
+    clearError: () => {},
+    retrySession: async () => {},
+    signInWithGoogle: async () => true,
+    signInWithApple: async () => true,
+    ...overrides,
+  });
+
+  const messages: string[] = [];
+  const view = render(
+    <AuthScreen
+      t={makeT("en")}
+      auth={authStub()}
+      initialMode="sign-up"
+      onClose={() => {}}
+      onDone={(message) => messages.push(message)}
+    />,
+  );
+
+  view.setInput("#a-email", "new@example.com");
+  view.setInput("#a-password", "secret123");
+
+  const form = view.container.querySelector("form");
+  if (!form) throw new Error("sign-up form missing");
+  await act(async () => {
+    form.dispatchEvent(
+      new win.Event("submit", { bubbles: true, cancelable: true }) as unknown as Event,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0], en["auth.checkEmail"]);
+  assert.ok(!messages.includes(en["auth.signedUpToast"]));
+  view.unmount();
+});
+
+test("an expired recovery session explains itself and offers sign-in", () => {
+  const cancelled: string[] = [];
+  const authStub = (overrides: Partial<UseAuth> = {}): UseAuth => ({
+    enabled: true,
+    status: "signed-out",
+    user: null,
+    error: null,
+    needsEmailConfirmation: false,
+    passwordResetReady: true,
+    signIn: async () => true,
+    signUp: async () => ({ ok: true, needsEmailConfirmation: false }),
+    resetPassword: async () => true,
+    updatePassword: async () => true,
+    cancelPasswordReset: () => cancelled.push("cancel"),
+    signOut: async () => {},
+    clearError: () => {},
+    retrySession: async () => {},
+    signInWithGoogle: async () => true,
+    signInWithApple: async () => true,
+    ...overrides,
+  });
+
+  const view = render(
+    <AuthScreen
+      t={makeT("en")}
+      auth={authStub()}
+      onClose={() => {}}
+      onDone={() => {}}
+    />,
+  );
+
+  assert.ok(view.text().includes(en["auth.recoveryEndedTitle"]));
+  assert.ok(view.text().includes(en["auth.recoveryEndedBody"]));
+
+  const save = view.container.querySelector('button[type="submit"]');
+  assert.ok(save?.hasAttribute("disabled"), "expired recovery cannot submit");
+
+  view.click("button.btn--ghost");
+  assert.deepEqual(cancelled, ["cancel"]);
+  view.unmount();
 });

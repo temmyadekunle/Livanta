@@ -7,9 +7,31 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import ThingEditor from "../components/ThingEditor.tsx";
 import { LocalePicker } from "../components/Onboarding.tsx";
+import { AuthScreen } from "../components/AuthScreen.tsx";
 import { LOCALES, makeT } from "../lib/i18n.ts";
 import { en } from "../lib/locales/en.ts";
+import type { UseAuth } from "../lib/useAuth.ts";
 import { assert } from "./helpers.ts";
+
+const stubAuth = (overrides: Partial<UseAuth> = {}): UseAuth => ({
+  enabled: true,
+  status: "signed-out",
+  user: null,
+  error: null,
+  needsEmailConfirmation: false,
+  passwordResetReady: false,
+  signIn: async () => true,
+  signUp: async () => ({ ok: true, needsEmailConfirmation: false }),
+  resetPassword: async () => true,
+  updatePassword: async () => true,
+  cancelPasswordReset: () => {},
+  signOut: async () => {},
+  clearError: () => {},
+  retrySession: async () => {},
+  signInWithGoogle: async () => true,
+  signInWithApple: async () => true,
+  ...overrides,
+});
 
 const preset = { kind: "rent", category: "home", label: "Rent" } as const;
 
@@ -265,4 +287,113 @@ test("translation proof page marks plural variants", async () => {
   for (const key of pluralKeys) {
     assert.ok(html.includes(`<code>${key}</code>`), `proof page missing ${key}`);
   }
+});
+
+test("AuthScreen welcome mode offers only create account and sign in", () => {
+  const html = renderToStaticMarkup(
+    <AuthScreen
+      t={makeT("en")}
+      auth={stubAuth()}
+      initialMode="welcome"
+      onClose={() => {}}
+      onDone={() => {}}
+    />,
+  );
+  const shown = text(html);
+  assert.ok(shown.includes(en["auth.welcomeTitle"]));
+  assert.ok(shown.includes(en["auth.welcomeBlurb"]));
+  assert.ok(shown.includes(en["auth.signUpTitle"]));
+  assert.ok(shown.includes(en["auth.signInTitle"]));
+  assert.ok(
+    !/continue without an account/i.test(shown),
+    "compulsory auth must not offer an offline escape",
+  );
+  assert.ok(!shown.includes("name@example.com"), "welcome must not show form fields");
+});
+
+test("AuthScreen welcome mode cannot be closed when no close handler is wired", () => {
+  const html = renderToStaticMarkup(
+    <AuthScreen
+      t={makeT("en")}
+      auth={stubAuth()}
+      initialMode="welcome"
+      onDone={() => {}}
+    />,
+  );
+  assert.ok(!text(html).includes(en["app.back"]));
+});
+
+test("AuthScreen welcome heading is translated in every language", async (t) => {
+  for (const locale of LOCALES) {
+    await t.test(locale, () => {
+      const shown = text(
+        renderToStaticMarkup(
+          <AuthScreen
+            t={makeT(locale)}
+            auth={stubAuth()}
+            initialMode="welcome"
+            onClose={() => {}}
+            onDone={() => {}}
+          />,
+        ),
+      );
+      assert.ok(shown.includes(makeT(locale)("auth.welcomeTitle")));
+    });
+  }
+});
+
+test("AuthScreen keeps the email-confirmation notice visible until acted on", () => {
+  for (const initialMode of ["welcome", "sign-up", "sign-in"] as const) {
+    const shown = text(
+      renderToStaticMarkup(
+        <AuthScreen
+          t={makeT("en")}
+          auth={stubAuth({ needsEmailConfirmation: true })}
+          initialMode={initialMode}
+          onClose={() => {}}
+          onDone={() => {}}
+        />,
+      ),
+    );
+    assert.ok(
+      shown.includes(en["auth.checkEmailTitle"]),
+      `${initialMode} hid the confirmation notice`,
+    );
+    assert.ok(shown.includes(en["auth.checkEmailBody"]));
+  }
+});
+
+test("AuthScreen surfaces a credentials error without leaking the raw message", () => {
+  const html = renderToStaticMarkup(
+    <AuthScreen
+      t={makeT("en")}
+      auth={stubAuth({
+        error: { code: "invalid-credentials", message: "Email or password is incorrect" },
+      })}
+      onClose={() => {}}
+      onDone={() => {}}
+    />,
+  );
+  const shown = text(html);
+  assert.ok(shown.includes(en["auth.invalid"]));
+  assert.ok(!shown.includes("Email or password is incorrect"));
+});
+
+test("a failed sign-out is reported instead of implying success", () => {
+  const shown = text(
+    renderToStaticMarkup(
+      <AuthScreen
+        t={makeT("en")}
+        auth={stubAuth({
+          status: "signed-in",
+          user: { email: "a@b.co" } as UseAuth["user"],
+          error: { code: "sign-out-failed", message: "network down" },
+        })}
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    ),
+  );
+  assert.ok(shown.includes(en["auth.signOutFailed"]));
+  assert.ok(!shown.includes("network down"));
 });

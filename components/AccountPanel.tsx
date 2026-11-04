@@ -57,6 +57,10 @@ export function AccountPanel({ t, auth, sync }: Props) {
           </div>
         ) : null}
 
+        {auth.error ? (
+          <div className="card-meta">{errorLabel(t, auth.error.code)}</div>
+        ) : null}
+
         <button
           type="button"
           className="btn btn-secondary"
@@ -82,13 +86,16 @@ export function AccountPanel({ t, auth, sync }: Props) {
     if (busy || !email || !password) return;
 
     setBusy(true);
-    const ok =
-      mode === "sign-in"
-        ? await auth.signIn(email, password)
-        : await auth.signUp(email, password);
+    if (mode === "sign-in") {
+      const ok = await auth.signIn(email, password);
+      if (!ok) setPassword("");
+      setBusy(false);
+      return;
+    }
 
+    const outcome = await auth.signUp(email, password);
     // Only clear the password on failure; on success the form unmounts anyway.
-    if (!ok) setPassword("");
+    if (!outcome.ok) setPassword("");
     setBusy(false);
   }
 
@@ -154,6 +161,7 @@ export function errorLabel(t: Translate, code: string): string {
   if (code === "invalid-credentials") return t("auth.invalid");
   if (code === "email-taken") return t("auth.emailTaken");
   if (code === "rate-limited") return t("auth.rateLimited");
+  if (code === "sign-out-failed") return t("auth.signOutFailed");
   return t("auth.unknown");
 }
 

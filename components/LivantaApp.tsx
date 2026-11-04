@@ -27,6 +27,10 @@ import { fromEditorValues, type EditorPreset } from "@/lib/editor";
 import InstallPrompt from "./InstallPrompt";
 import type { TKey } from "@/lib/locales/en";
 import type { Thing } from "@/lib/types";
+import {
+  isAuthSurface,
+  resolveAppSurface,
+} from "@/lib/authGate";
 import { useAuth } from "@/lib/useAuth";
 import { useCloudSync } from "@/lib/useCloudSync";
 import { greetingKeyFor, useDayPart } from "@/lib/useDayPart";
@@ -104,6 +108,18 @@ export default function LivantaApp() {
   const [obStep, setObStep] = useState(0);
   const [obAuthOpen, setObAuthOpen] = useState(false);
 
+  /* One pure decision owns which surface may render. In particular it has no
+     dismissal input and does not consult local storage, so neither an earlier
+     dismissal nor browser navigation can weaken it. */
+  const surface = resolveAppSurface({
+    ready: desk.ready,
+    onboarded: desk.settings.onboarded,
+    authEnabled: auth.enabled,
+    authStatus: auth.status,
+    passwordResetReady: auth.passwordResetReady,
+  });
+  const authSurface = isAuthSurface(surface);
+
 const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
   const pop = useCallback(() => setStack((s) => s.slice(0, -1)), []);
 
@@ -111,6 +127,9 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
     let cancelled = false;
     let handle: { remove: () => Promise<void> } | undefined;
     void App.addListener("backButton", () => {
+      // Compulsory authentication has no hardware escape: back does nothing on
+      // any surface whose only job is to establish or repair a session.
+      if (authSurface) return;
       if (confirmWipe || confirmThing !== null) {
         setConfirmWipe(false);
         setConfirmThing(null);
@@ -140,7 +159,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
       cancelled = true;
       void handle?.remove();
     };
-  }, [confirmWipe, confirmThing, obAuthOpen, obStep, desk.settings.onboarded, quickOpen, openId, editId, stack, tab, pop]);
+  }, [confirmWipe, confirmThing, obAuthOpen, authSurface, obStep, desk.settings.onboarded, quickOpen, openId, editId, stack, tab, pop]);
 
   // A completed sync writes to IndexedDB, so the desk has to re-read for the
   // pulled state to appear.
@@ -284,7 +303,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
 
   /* -------------------------------------------------------------- gates */
 
-  if (desk.ready && !desk.settings.onboarded) {
+  if (surface.kind === "onboarding") {
     return (
       <div className="app" lang={desk.settings.locale}>
         <div className="app__col">
@@ -350,7 +369,79 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
     );
   }
 
-  if (!desk.ready) {
+  if (surface.kind === "auth-loading") {
+    return (
+      <div className="app" lang={desk.settings.locale}>
+        <div className="app__col">
+          <div className="app__body splash" role="status" aria-live="polite">
+            <span className="splash__logo">
+              <Logo variant="wordmark" priority />
+            </span>
+            <p className="splash__slogan">{t("auth.checking")}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (surface.kind === "auth-error") {
+    return (
+      <div className="app" lang={desk.settings.locale}>
+        <div className="app__col">
+          <div className="app__body">
+            <div className="ob-brand" style={{ textAlign: "center" }}>
+              <Logo variant="wordmark" priority />
+              <h2 className="ob-h" style={{ marginTop: "1rem", marginBottom: "0.25rem" }}>
+                {t("auth.sessionErrorTitle")}
+              </h2>
+              <p className="card-meta">{t("auth.sessionErrorBody")}</p>
+            </div>
+            <button
+              className="btn btn--primary btn--lg btn--block"
+              style={{ marginTop: "1.5rem" }}
+              onClick={() => void auth.retrySession()}
+            >
+              <Icon name="refresh" size={18} />
+              {t("app.retry")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (surface.kind === "auth-gate" || surface.kind === "recovery") {
+    return (
+      <div className="app" lang={desk.settings.locale}>
+        <div className="app__col">
+          {/* No back control: the gate is the only way forward, and a recovery
+              link owns the session until the new password is set. */}
+          <header className="appbar">
+            <div className="appbar__lead">
+              <span className="appbar__logo">
+                <Logo />
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <h1 className="appbar__title">{t("account.title")}</h1>
+                <p className="appbar__sub">{t("account.subtitle")}</p>
+              </div>
+            </div>
+          </header>
+          <main className="app__body" id="app-main" tabIndex={-1}>
+            <AuthScreen
+              t={t}
+              auth={auth}
+              initialMode={surface.kind === "recovery" ? "sign-in" : "welcome"}
+              onDone={(message) => showToast(message, "ok")}
+            />
+          </main>
+        </div>
+        <Toast toast={toast} />
+      </div>
+    );
+  }
+
+  if (surface.kind === "booting") {
     return (
       <div className="app" lang={desk.settings.locale}>
         <div className="app__col">
@@ -366,16 +457,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
     );
   }
 
-  /* Someone following a reset link lands on the app root, not on the account
-     screen, so the recovery session has to put that screen up by itself. Derived
-     from auth state rather than pushed onto the stack, so it costs no extra
-     render, and so the back chevron can be suppressed: a recovery session
-     cannot sign in again without its token, so there is nowhere useful to
-     return to and a live-looking back button would simply do nothing. */
-const recovering = auth.passwordResetReady;
-const route: Route | null = recovering
-    ? { kind: "auth" }
-    : (stack[stack.length - 1] ?? null);
+  const route: Route | null = stack[stack.length - 1] ?? null;
   const open = openId ? desk.things.find((x) => x.id === openId) ?? null : null;
   const editing = editId ? desk.things.find((x) => x.id === editId) ?? null : null;
 
@@ -388,8 +470,7 @@ const route: Route | null = recovering
         <Header
           desk={desk}
           tab={tab}
-route={route}
-          canGoBack={!recovering}
+          route={route}
           onBack={pop}
           onOpenAlerts={() => {
             setStack([]);
@@ -622,17 +703,14 @@ route={route}
 function Header({
   desk,
   tab,
-route,
-  canGoBack,
+  route,
   onBack,
   onOpenAlerts,
   onOpenProfile,
 }: {
   desk: ReturnType<typeof useLivanta>;
   tab: Tab;
-route: Route | null;
-  /** False for a derived route, such as password recovery, that cannot be popped. */
-  canGoBack: boolean;
+  route: Route | null;
   onBack: () => void;
   onOpenAlerts: () => void;
   onOpenProfile: () => void;
@@ -677,7 +755,7 @@ route: Route | null;
   return (
     <header className="appbar">
 <div className="appbar__lead">
-        {route && canGoBack ? (
+        {route ? (
           <button className="iconbtn" onClick={onBack} aria-label={t("app.back")}>
             <Icon name="chevronLeft" size={22} />
           </button>

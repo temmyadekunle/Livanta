@@ -472,6 +472,11 @@ export const yo: Dict = {
   "profile.aboutSub": "Vẹ́ẹ́sì, àwọn olú-ẹ̀dá àti ìlànà",
   "profile.more": "Sí i",
 
+  "auth.welcomeTitle": "Káàbọ̀ sí Livanta",
+  "auth.welcomeBlurb": "Ohun ẹlò rẹ gbogbo lóòjoojúmọ́, ti a ṣe àkójọpọ̀ ní ibi kan.",
+  "auth.checking": "Ń ṣàyẹ̀wò àkọọ́lẹ̀ rẹ…",
+  "auth.sessionErrorTitle": "A kò lè ṣàyẹ̀wò àkọọ́lẹ̀ rẹ",
+  "auth.sessionErrorBody": "Kò sí ohun tó yí padà lórí ẹ̀rọ yìí. Ṣàyẹ̀wò ìsopọ̀ rẹ kí o sì tún gbìyànjú.",
   "auth.signInTitle": "Wọlé",
   "auth.signUpTitle": "Ṣẹ̀dá àkọọ́lẹ̀",
   "auth.forgotTitle": "Tún ọ̀rọ̀ ìpamọ́ ṣe",
@@ -497,6 +502,9 @@ export const yo: Dict = {
   "auth.resetSent": "A fi ọ̀nà ìtúnṣe ránṣẹ́",
   "auth.resetSentBody": "Tẹ̀lé ọ̀nà tí ó wà nínú ímeèlì láti yí ọ̀rọ̀ ìpamọ́ tuntun.",
   "auth.signedInToast": "O ti wọlé. Ń fi sí pẹ̀lú…",
-  "auth.signedUpToast": "A ṣẹ̀dá àkọọ́lẹ̀. Wo ímeèlì rẹ láti fẹ̀rí.",
+  "auth.signedUpToast": "A ṣẹ̀dá àkọọ́lẹ̀. O ti wọlé.",
   "auth.passwordUpdated": "A ṣe àtúnṣe ọ̀rọ̀ ìpamọ́. O ti wọlé.",
+  "auth.recoveryEndedTitle": "Ọ̀nà àtúnṣe ọ̀rọ̀ ìpamọ́ ti parí",
+  "auth.recoveryEndedBody": "Wọlé lẹ́ẹ̀kan sí i, tàbí béèrè fún ọ̀nà tuntun.",
+  "auth.signOutFailed": "Kò lè jáde. Ṣàyẹ̀wò ìsopọ̀ rẹ kí o sì tún gbìyànjú.",
 } as const;

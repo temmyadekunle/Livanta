@@ -11,24 +11,31 @@
 import { useState } from "react";
 
 import { Icon } from "./Icons";
+import { Logo } from "./Logo";
 import { Notice } from "./ui";
 import type { Translate } from "@/lib/i18n";
 import type { UseAuth } from "@/lib/useAuth";
 
-type Mode = "sign-in" | "sign-up" | "forgot" | "new-password";
+type Mode = "welcome" | "sign-in" | "sign-up" | "forgot" | "new-password";
 
 export function AuthScreen({
   t,
   auth,
   onClose,
   onDone,
+  initialMode = "sign-in",
 }: {
   t: Translate;
   auth: UseAuth;
-  onClose: () => void;
+  /**
+   * Optional on purpose. The compulsory gate renders this screen without one,
+   * so there is no control that can leave authentication.
+   */
+  onClose?: () => void;
   onDone: (message: string) => void;
+  initialMode?: Mode;
 }) {
-  const [manualMode, setMode] = useState<Mode>("sign-in");
+  const [manualMode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -44,6 +51,14 @@ export function AuthScreen({
      without special-casing. */
   const mode: Mode = auth.passwordResetReady ? "new-password" : manualMode;
 
+  /* A recovery session can end while this form is open: the link expires or
+     the user signs out elsewhere. The flag survives that, so without a notice
+     and a way back the user would face a form that can never succeed. */
+  const recoveryEnded =
+    mode === "new-password" &&
+    auth.passwordResetReady &&
+    auth.status !== "signed-in";
+
   if (!auth.enabled) {
     return (
       <div className="stack">
@@ -52,9 +67,11 @@ export function AuthScreen({
           <br />
           {t("account.offlineOnlyBody")}
         </Notice>
-        <button className="btn btn--secondary btn--block" onClick={onClose}>
-          {t("app.back")}
-        </button>
+        {onClose ? (
+          <button className="btn btn--secondary btn--block" onClick={onClose}>
+            {t("app.back")}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -76,6 +93,9 @@ export function AuthScreen({
             </div>
           </div>
         </div>
+        {auth.error ? (
+          <Notice tone="danger">{errorLabel(t, auth.error.code)}</Notice>
+        ) : null}
         <button
           className="btn btn--danger btn--block"
           onClick={() => void auth.signOut()}
@@ -83,9 +103,54 @@ export function AuthScreen({
           <Icon name="logOut" size={18} />
           {t("account.signOut")}
         </button>
-        <button className="btn btn--ghost btn--block" onClick={onClose}>
-          {t("app.back")}
-        </button>
+        {onClose ? (
+          <button className="btn btn--ghost btn--block" onClick={onClose}>
+            {t("app.back")}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (mode === "welcome") {
+    return (
+      <div>
+        <div className="ob-brand" style={{ textAlign: "center" }}>
+          <Logo variant="wordmark" priority />
+          <h2 className="ob-h" style={{ marginTop: "1rem", marginBottom: "0.25rem" }}>
+            {t("auth.welcomeTitle")}
+          </h2>
+          <p className="card-meta">{t("auth.welcomeBlurb")}</p>
+        </div>
+        {auth.needsEmailConfirmation ? (
+          <div style={{ marginTop: "1rem" }}>
+            <Notice tone="info" icon="mail">
+              <strong>{t("auth.checkEmailTitle")}</strong>
+              <br />
+              {t("auth.checkEmailBody")}
+            </Notice>
+          </div>
+        ) : null}
+        <div className="stack" style={{ marginTop: "1.5rem" }}>
+          <button
+            className="btn btn--primary btn--lg btn--block"
+            onClick={() => {
+              auth.clearError();
+              setMode("sign-up");
+            }}
+          >
+            {t("auth.signUpTitle")}
+          </button>
+          <button
+            className="btn btn--secondary btn--lg btn--block"
+            onClick={() => {
+              auth.clearError();
+              setMode("sign-in");
+            }}
+          >
+            {t("auth.signInTitle")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -121,21 +186,33 @@ export function AuthScreen({
 
     if (!email.trim() || !password) return;
     setBusy(true);
-    const ok =
-      mode === "sign-in"
-        ? await auth.signIn(email, password)
-        : await auth.signUp(email, password);
-    setBusy(false);
 
-    if (!ok) {
+    if (mode === "sign-in") {
+      const ok = await auth.signIn(email, password);
+      setBusy(false);
+      if (!ok) {
+        setPassword("");
+        return;
+      }
+      onDone(t("auth.signedInToast"));
+      return;
+    }
+
+    /* The outcome carries the confirmation requirement directly. Reading
+       auth.needsEmailConfirmation here would read the snapshot from the render
+       before submission, which is exactly how a sign-up awaiting confirmation
+       used to claim the user was signed in. */
+    const outcome = await auth.signUp(email, password);
+    setBusy(false);
+    if (!outcome.ok) {
       setPassword("");
       return;
     }
-    if (auth.needsEmailConfirmation) {
-      onDone(t("auth.checkEmail"));
-    } else {
-      onDone(mode === "sign-in" ? t("auth.signedInToast") : t("auth.signedUpToast"));
-    }
+    onDone(
+      outcome.needsEmailConfirmation
+        ? t("auth.checkEmail")
+        : t("auth.signedUpToast"),
+    );
   }
 
   const title =
@@ -165,7 +242,8 @@ export function AuthScreen({
         <p className="card-meta">{blurb}</p>
       </div>
 
-      {auth.needsEmailConfirmation && mode === "sign-in" ? (
+      {auth.needsEmailConfirmation &&
+      (mode === "sign-in" || mode === "sign-up") ? (
         <div style={{ marginBottom: "0.875rem" }}>
           <Notice tone="info" icon="mail">
             <strong>{t("auth.checkEmailTitle")}</strong>
@@ -176,6 +254,16 @@ export function AuthScreen({
       ) : null}
 
       <form onSubmit={submit}>
+        {recoveryEnded ? (
+          <div style={{ marginBottom: "0.875rem" }}>
+            <Notice tone="danger">
+              <strong>{t("auth.recoveryEndedTitle")}</strong>
+              <br />
+              {t("auth.recoveryEndedBody")}
+            </Notice>
+          </div>
+        ) : null}
+
         {mode !== "new-password" ? (
           <div className="field">
             <label htmlFor="a-email">{t("account.email")}</label>
@@ -240,6 +328,7 @@ export function AuthScreen({
           className="btn btn--primary btn--lg btn--block"
           disabled={
             busy ||
+            recoveryEnded ||
             (mode === "forgot" ? !email.trim() : mode === "new-password" ? password.length < 6 : !email.trim() || !password)
           }
         >
@@ -348,11 +437,15 @@ export function AuthScreen({
           </>
         ) : null}
 
-        {mode === "new-password" && !auth.passwordResetReady ? (
+        {mode === "new-password" &&
+        (!auth.passwordResetReady || auth.status !== "signed-in") ? (
           <button
             type="button"
             className="btn btn--ghost btn--block"
             onClick={() => {
+              if (auth.passwordResetReady) auth.cancelPasswordReset();
+              setPassword("");
+              setSent(false);
               setMode("sign-in");
             }}
           >
@@ -374,5 +467,6 @@ function errorLabel(t: Translate, code: string): string {
   if (code === "invalid-credentials") return t("auth.invalid");
   if (code === "email-taken") return t("auth.emailTaken");
   if (code === "rate-limited") return t("auth.rateLimited");
+  if (code === "sign-out-failed") return t("auth.signOutFailed");
   return t("auth.unknown");
 }

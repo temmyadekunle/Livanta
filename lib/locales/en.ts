@@ -490,6 +490,11 @@ export const en = {
   "auth.unknown": "Something went wrong. Try again.",
 
   /* ---------- auth screen ---------- */
+  "auth.welcomeTitle": "Welcome to Livanta",
+  "auth.welcomeBlurb": "Your everyday responsibilities, organised in one place.",
+  "auth.checking": "Checking your account…",
+  "auth.sessionErrorTitle": "We couldn't check your account",
+  "auth.sessionErrorBody": "Nothing on this device has changed. Check your connection and try again.",
   "auth.signInTitle": "Sign in",
   "auth.signUpTitle": "Create account",
   "auth.forgotTitle": "Reset password",
@@ -515,8 +520,11 @@ export const en = {
   "auth.resetSent": "Reset link sent",
   "auth.resetSentBody": "Follow the link in the email to choose a new password.",
   "auth.signedInToast": "Signed in. Syncing…",
-  "auth.signedUpToast": "Account created. Check your email to confirm.",
+  "auth.signedUpToast": "Account created. You are signed in.",
   "auth.passwordUpdated": "Password updated. You are signed in.",
+  "auth.recoveryEndedTitle": "Your reset link has expired",
+  "auth.recoveryEndedBody": "Sign in again, or request a fresh reset link.",
+  "auth.signOutFailed": "Could not sign out. Check your connection and try again.",
 } as const;
 
 export type TKey = keyof typeof en;
