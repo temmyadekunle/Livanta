@@ -1,4 +1,6 @@
 import test from "node:test";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   soonest,
   summariseAssets,
@@ -28,6 +30,33 @@ test("warrantyFor", async (t) => {
       NOW,
     );
     assert.equal(w?.expiry, "2027-01-15");
+  });
+
+  await t.test("keeps the calendar day east of Greenwich", () => {
+    // The host timezone cannot be switched mid-run, so exercise the exact
+    // condition in a child: local midnight in Lagos is the previous UTC day.
+    const script = `
+      import { warrantyFor } from "./lib/modules.ts";
+      const thing = { details: { purchasedAt: "2026-01-15", warrantyMonths: 12 } };
+      process.stdout.write(warrantyFor(thing, new Date("2026-10-03T09:00:00Z"))?.expiry ?? "");
+    `;
+    const expiry = execFileSync(
+      process.execPath,
+      [
+        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+        "--import",
+        "./tests/register.mjs",
+        "--input-type=module",
+        "-e",
+        script,
+      ],
+      {
+        cwd: fileURLToPath(new URL("../", import.meta.url)),
+        env: { ...process.env, TZ: "Africa/Lagos" },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(expiry, "2027-01-15");
   });
 
   await t.test("active when more than 30 days remain", () => {

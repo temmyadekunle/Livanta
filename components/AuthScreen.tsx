@@ -23,10 +23,12 @@ export function AuthScreen({
   auth,
   onClose,
   onDone,
+  onSignOut,
   initialMode = "sign-in",
 }: {
   t: Translate;
   auth: UseAuth;
+  onSignOut?: () => Promise<void>;
   /**
    * Optional on purpose. The compulsory gate renders this screen without one,
    * so there is no control that can leave authentication.
@@ -98,7 +100,13 @@ export function AuthScreen({
         ) : null}
         <button
           className="btn btn--danger btn--block"
-          onClick={() => void auth.signOut()}
+          onClick={() => {
+            if (onSignOut) {
+              void onSignOut();
+            } else {
+              void auth.signOut();
+            }
+          }}
         >
           <Icon name="logOut" size={18} />
           {t("account.signOut")}

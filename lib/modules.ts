@@ -1,5 +1,6 @@
 import { daysUntil } from "./risk.ts";
 import { amountOrZero } from "./money.ts";
+import { parseISO, toISO } from "./dates.ts";
 import type { Thing } from "./types.ts";
 
 /* ---------------- warranty ---------------- */
@@ -13,9 +14,10 @@ export interface Warranty {
 }
 
 function addMonths(iso: string, months: number): string {
-  const d = new Date(`${iso}T00:00:00`);
+  // Local components: toISOString shifts a local-midnight day back east of UTC.
+  const d = parseISO(iso);
   d.setMonth(d.getMonth() + months);
-  return d.toISOString().slice(0, 10);
+  return toISO(d);
 }
 
 export function warrantyFor(

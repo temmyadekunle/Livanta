@@ -12,6 +12,34 @@ param(
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
+# Gradle stamps versionName/versionCode on the APK, so android/app/build.gradle
+# is the source for both the artifact name and the release guard. package.json
+# must carry the same versionName, and the version code must always move
+# forward: the stores reject a reused one and users cannot install an upgrade
+# over an equal code.
+$releasedVersionName = "0.1.1"
+$releasedVersionCode = 5
+
+$gradlePath = Join-Path $root "android\app\build.gradle"
+$gradleText = Get-Content $gradlePath -Raw
+$versionCodeMatch = [regex]::Match($gradleText, 'versionCode\s+(\d+)')
+$versionNameMatch = [regex]::Match($gradleText, 'versionName\s+"([^"]+)"')
+if (-not $versionCodeMatch.Success -or -not $versionNameMatch.Success) {
+  throw "Could not read versionCode/versionName from $gradlePath."
+}
+$androidVersionCode = [int]$versionCodeMatch.Groups[1].Value
+$androidVersionName = $versionNameMatch.Groups[1].Value
+$packageVersion = (Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version
+if ($packageVersion -ne $androidVersionName) {
+  throw "package.json is $packageVersion but android versionName is $androidVersionName. Update both together."
+}
+if ($androidVersionName -eq $releasedVersionName -and $androidVersionCode -ne $releasedVersionCode) {
+  throw "$releasedVersionName shipped as versionCode $releasedVersionCode; found $androidVersionCode. Never reuse or lower a version code."
+}
+if ($androidVersionName -ne $releasedVersionName -and $androidVersionCode -le $releasedVersionCode) {
+  throw "versionName $androidVersionName must use a versionCode above $releasedVersionCode; found $androidVersionCode."
+}
+
 $env:JAVA_HOME = "$env:LOCALAPPDATA\Android\tools\jdk-21.0.12.1+1"
 $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
 
@@ -151,13 +179,17 @@ try {
     }
   }
 
-  $version = (Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version
+  Write-Host "==> Livanta $androidVersionName (versionCode $androidVersionCode)"
   $outDir = Join-Path $root "output\android"
   New-Item -ItemType Directory -Force $outDir | Out-Null
   $release = "android\app\build\outputs\apk\release\app-release.apk"
   $debug = "android\app\build\outputs\apk\debug\app-debug.apk"
-  Copy-Item $release (Join-Path $outDir "livanta-$version-release.apk") -Force
-  Copy-Item $debug (Join-Path $outDir "livanta-$version-debug.apk") -Force
+  $releaseTarget = Join-Path $outDir "livanta-$androidVersionName-release.apk"
+  if (Test-Path $releaseTarget) {
+    throw "$releaseTarget already exists. Bump versionName and versionCode before building another release; a published artifact is never overwritten."
+  }
+  Copy-Item $release $releaseTarget
+  Copy-Item $debug (Join-Path $outDir "livanta-$androidVersionName-debug.apk") -Force
 
   Get-ChildItem $outDir -Filter "*.apk" | Sort-Object Name | ForEach-Object {
     $hash = Get-FileHash $_.FullName -Algorithm SHA256

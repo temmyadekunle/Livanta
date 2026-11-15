@@ -368,7 +368,10 @@ test("CalendarScreen", async (t) => {
 
   await t.test("clicking the due day lists the thing", () => {
     const view = render(<CalendarScreen {...props} />);
-    // December is two months ahead of the real clock; step forward twice.
+    const title = () => view.container.querySelector(".month__title")?.textContent;
+    // NOW pins the calendar's initial day to 3 October 2026, so December is
+    // exactly two months ahead and no longer depends on the wall clock.
+    assert.equal(title(), "October 2026");
     view.click('button[aria-label="Next month"]');
     view.click('button[aria-label="Next month"]');
     const dueDay = view.container.querySelector('.day[aria-label*="item"]');
@@ -393,7 +396,7 @@ test("CalendarScreen", async (t) => {
 
   await t.test("an empty day offers the empty state with an add action", () => {
     const view = render(<CalendarScreen {...props} />);
-    // The cursor opens on today (October), which has no items in this desk.
+    // The pinned clock opens the cursor on October 2026, which has no items.
     assert.ok(view.text().includes(en["cal.emptyTitle"]));
     view.unmount();
   });
@@ -413,6 +416,8 @@ test("AuthScreen welcome mode continues into create account and sign in", async 
     updatePassword: async () => true,
     cancelPasswordReset: () => {},
     signOut: async () => {},
+    teardownPending: false,
+    retryTransition: async () => {},
     clearError: () => {},
     retrySession: async () => {},
     signInWithGoogle: async () => true,
@@ -523,6 +528,8 @@ test("sign-up requiring confirmation never claims the user is signed in", async 
     updatePassword: async () => true,
     cancelPasswordReset: () => {},
     signOut: async () => {},
+    teardownPending: false,
+    retryTransition: async () => {},
     clearError: () => {},
     retrySession: async () => {},
     signInWithGoogle: async () => true,
@@ -574,6 +581,8 @@ test("an expired recovery session explains itself and offers sign-in", () => {
     updatePassword: async () => true,
     cancelPasswordReset: () => cancelled.push("cancel"),
     signOut: async () => {},
+    teardownPending: false,
+    retryTransition: async () => {},
     clearError: () => {},
     retrySession: async () => {},
     signInWithGoogle: async () => true,

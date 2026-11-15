@@ -133,7 +133,7 @@ export default function Onboarding({
   onStepChange: (step: number) => void;
   onDone: (result: OnboardingResult) => void;
   onSignIn: () => void;
-  onDemo: (locale: Locale) => void;
+  onDemo?: (locale: Locale) => void;
 }) {
   const [locale, setLocale] = useState<Locale>(initialLocale);
   const [picked, setPicked] = useState<Category[]>([]);
@@ -212,7 +212,7 @@ export default function Onboarding({
           <button
             className="btn btn--ghost btn--block"
             style={{ marginTop: "0.5rem" }}
-            onClick={() => onDemo(locale)}
+            onClick={() => onDemo?.(locale)}
           >
             {t("ob.demo")}
           </button>

@@ -19,11 +19,12 @@ interface Props {
   t: Translate;
   auth: UseAuth;
   sync: UseCloudSync;
+  onSignOut?: () => Promise<void>;
 }
 
 type Mode = "sign-in" | "sign-up";
 
-export function AccountPanel({ t, auth, sync }: Props) {
+export function AccountPanel({ t, auth, sync, onSignOut }: Props) {
   const [mode, setMode] = useState<Mode>("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -51,7 +52,7 @@ export function AccountPanel({ t, auth, sync }: Props) {
           </span>
         </div>
 
-        {sync.lastResult && sync.lastResult.at ? (
+        {!sync.suspended && sync.lastResult && sync.lastResult.at ? (
           <div className="card-meta">
             {t("sync.lastSynced", { time: formatTime(sync.lastResult.at) })}
           </div>
@@ -64,19 +65,29 @@ export function AccountPanel({ t, auth, sync }: Props) {
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={() => void auth.signOut()}
+          onClick={() => {
+            if (onSignOut) {
+              void onSignOut();
+            } else {
+              void auth.signOut();
+            }
+          }}
         >
           {t("account.signOut")}
         </button>
 
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={sync.phase === "syncing"}
-          onClick={() => void sync.syncNow()}
-        >
-          {sync.phase === "syncing" ? t("sync.syncing") : t("sync.now")}
-        </button>
+        {/* Hidden while sync is suspended: the handler returns before doing
+            anything, so the control could only ever look like a failed sync. */}
+        {!sync.suspended ? (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={sync.phase === "syncing"}
+            onClick={() => void sync.syncNow()}
+          >
+            {sync.phase === "syncing" ? t("sync.syncing") : t("sync.now")}
+          </button>
+        ) : null}
       </section>
     );
   }
@@ -149,6 +160,9 @@ export function AccountPanel({ t, auth, sync }: Props) {
 }
 
 export function syncLabel(t: Translate, sync: UseCloudSync): string {
+  // Suspension is the honest answer before any network state: nothing can have
+  // been uploaded, so no other label applies.
+  if (sync.suspended) return t("sync.offline");
   if (!sync.online) return t("sync.offlineNet");
   if (sync.phase === "syncing") return t("sync.syncing");
   if (sync.phase === "error") return t("sync.failed");

@@ -20,9 +20,11 @@ import { dueMeta, TONE_CLASS } from "./labels";
 import { formatDate } from "@/lib/dates";
 import { formatNaira } from "@/lib/i18n";
 import { hasAmount } from "@/lib/money";
-import { notifyReminder, notifyUrgentAlert } from "@/lib/notifications";
+import {
+  deliverOwnerNotification,
+  reconcileReminders,
+} from "@/lib/reminders/coordinator";
 import { planReminders } from "@/lib/reminders";
-import { rescheduleReminders } from "@/lib/schedule";
 import { fromEditorValues, type EditorPreset } from "@/lib/editor";
 import InstallPrompt from "./InstallPrompt";
 import type { TKey } from "@/lib/locales/en";
@@ -31,10 +33,18 @@ import {
   isAuthSurface,
   resolveAppSurface,
 } from "@/lib/authGate";
+import { useAccountStore } from "@/lib/useAccountStore";
 import { useAuth } from "@/lib/useAuth";
 import { useCloudSync } from "@/lib/useCloudSync";
 import { greetingKeyFor, useDayPart } from "@/lib/useDayPart";
 import { useLivanta } from "@/lib/useLivanta";
+import type { LocalStore } from "@/lib/db.ts";
+import {
+  subscribeToIdentityChanges,
+  type IdentityMessage,
+} from "@/lib/identityTransition";
+import { readSessionOwner } from "@/lib/sessionAuthority";
+import type { AccountTransitionCoordinator } from "@/lib/accountTransition";
 
 type Tab = "home" | "life" | "alerts" | "calendar" | "profile";
 
@@ -89,10 +99,23 @@ function ScreenFallback({ label }: { label: string }) {
   );
 }
 
-export default function LivantaApp() {
-  const desk = useLivanta();
-  const { t, refresh } = desk;
+export default function LivantaApp({
+  coordinator,
+}: {
+  /* Owned by AppEntry, which is not remounted with the auth status, so a
+     transition survives the remount this component performs. */
+  coordinator: AccountTransitionCoordinator;
+}) {
   const auth = useAuth();
+  const [accountResetToken, setAccountResetToken] = useState(0);
+  const account = useAccountStore({
+    authEnabled: auth.enabled,
+    authStatus: auth.status,
+    userId: auth.user?.id ?? null,
+    resetToken: accountResetToken,
+  });
+  const desk = useLivanta(account.store, account.expectedUserId);
+  const { t, refresh } = desk;
   const sync = useCloudSync({ dataSaver: desk.settings.dataSaver });
   const { toast, showToast } = useToast();
 
@@ -107,6 +130,10 @@ export default function LivantaApp() {
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [obStep, setObStep] = useState(0);
   const [obAuthOpen, setObAuthOpen] = useState(false);
+  /** Another tab ended this session; this tab must not show the account. */
+  const [identityRevoked, setIdentityRevoked] = useState(false);
+  /** A local teardown failed; nothing may activate until it succeeds. */
+  const [transitionFailure, setTransitionFailure] = useState<string | null>(null);
 
   /* One pure decision owns which surface may render. In particular it has no
      dismissal input and does not consult local storage, so neither an earlier
@@ -117,10 +144,13 @@ export default function LivantaApp() {
     authEnabled: auth.enabled,
     authStatus: auth.status,
     passwordResetReady: auth.passwordResetReady,
+    identityInvalid: account.status === "error",
+    teardownPending: auth.teardownPending,
+    identityRevoked,
   });
   const authSurface = isAuthSurface(surface);
 
-const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
+  const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
   const pop = useCallback(() => setStack((s) => s.slice(0, -1)), []);
 
   useEffect(() => {
@@ -129,7 +159,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
     void App.addListener("backButton", () => {
       // Compulsory authentication has no hardware escape: back does nothing on
       // any surface whose only job is to establish or repair a session.
-      if (authSurface) return;
+      if (authSurface || transitionFailure) return;
       if (confirmWipe || confirmThing !== null) {
         setConfirmWipe(false);
         setConfirmThing(null);
@@ -159,7 +189,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
       cancelled = true;
       void handle?.remove();
     };
-  }, [confirmWipe, confirmThing, obAuthOpen, authSurface, obStep, desk.settings.onboarded, quickOpen, openId, editId, stack, tab, pop]);
+  }, [confirmWipe, confirmThing, obAuthOpen, authSurface, transitionFailure, obStep, desk.settings.onboarded, quickOpen, openId, editId, stack, tab, pop]);
 
   // A completed sync writes to IndexedDB, so the desk has to re-read for the
   // pulled state to appear.
@@ -196,11 +226,27 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
      local notifications plugin), which fires with the app closed. On the web
      this resolves to "unsupported" immediately — there is no reliable
      scheduled-notification API there — and the in-session path below is the
-     only delivery. Reconciled wholesale on every data or settings change, so
-     a deleted thing stops notifying without any bookkeeping here. The plan is
-     recomputed inside the effect on data changes (cheap, pure) and the
-     signature gate keeps that from turning into a cancel/reschedule loop. */
+     only delivery. Every call goes through the reminder coordinator, which
+     refuses a plan whose owner is not the current session owner or does not
+     match the persisted marker, and reconciles wholesale under the identity
+     lock. The signature gate keeps data changes from turning into a
+     cancel/reschedule loop. */
   const lastScheduled = useRef("");
+  const notified = useRef<Set<string>>(new Set());
+
+  /* A different store means a different account (or a fresh store for the same
+     one). Both the schedule signature and the in-session notification memory
+     describe the previous store, so they must not be carried over: a matching
+     signature would otherwise skip re-scheduling reminders that teardown had
+     cancelled, and a remembered alert id would suppress it for the new owner. */
+  const scheduledStoreRef = useRef<LocalStore | null>(null);
+  useEffect(() => {
+    if (scheduledStoreRef.current === account.store) return;
+    scheduledStoreRef.current = account.store;
+    lastScheduled.current = "";
+    notified.current = new Set();
+  }, [account.store]);
+
   useEffect(() => {
     if (!desk.ready) return;
     const plan = desk.settings.notifyUrgent
@@ -216,28 +262,63 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
       .join("|")}`;
     if (signature === lastScheduled.current) return;
     lastScheduled.current = signature;
-    void rescheduleReminders(plan);
-  }, [desk.ready, desk.things, desk.settings.notifyUrgent, desk.settings.leadDays, t]);
+    void reconcileReminders({
+      authEnabled: auth.enabled,
+      ownerId: account.expectedUserId,
+      plan,
+    });
+  }, [
+    desk.ready,
+    desk.things,
+    desk.settings.notifyUrgent,
+    desk.settings.leadDays,
+    t,
+    auth.enabled,
+    account.expectedUserId,
+  ]);
 
-  const notified = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!desk.ready || !desk.settings.notifyUrgent) return;
-    const urgent = desk.alerts.find((a) => a.priority === "urgent");
-    if (urgent && notifyUrgentAlert(urgent, notified.current)) {
-      notified.current.add(urgent.id);
-    }
-    const now = new Date();
-    const plan = planReminders(desk.things, {
-      leadDays: desk.settings.leadDays,
-      tr: t,
-      now,
-    });
-    for (const reminder of plan) {
-      if (reminder.fireAt.getTime() > now.getTime()) continue;
-      if (notifyReminder(reminder, notified.current)) {
-        notified.current.add(reminder.id);
+    const authEnabled = auth.enabled;
+    const ownerId = account.expectedUserId;
+    void (async () => {
+      const urgent = desk.alerts.find((a) => a.priority === "urgent");
+      if (
+        urgent &&
+        (await deliverOwnerNotification({
+          authEnabled,
+          ownerId,
+          notification: {
+            id: urgent.id,
+            title: urgent.title,
+            body: urgent.message,
+          },
+          alreadyNotified: notified.current,
+        }))
+      ) {
+        notified.current.add(urgent.id);
       }
-    }
+
+      const now = new Date();
+      const plan = planReminders(desk.things, {
+        leadDays: desk.settings.leadDays,
+        tr: t,
+        now,
+      });
+      for (const reminder of plan) {
+        if (reminder.fireAt.getTime() > now.getTime()) continue;
+        if (
+          await deliverOwnerNotification({
+            authEnabled,
+            ownerId,
+            notification: reminder,
+            alreadyNotified: notified.current,
+          })
+        ) {
+          notified.current.add(reminder.id);
+        }
+      }
+    })();
   }, [
     desk.ready,
     desk.settings.notifyUrgent,
@@ -246,6 +327,8 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
     desk.things,
     t,
     nowTick,
+    auth.enabled,
+    account.expectedUserId,
   ]);
 
   const openThing = useCallback((thing: Thing) => {
@@ -265,10 +348,215 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
     setEditId(null);
   }, []);
 
+  /* Every account transition goes through one coordinator. It records the
+     current session, and tears that session down exactly once no matter how
+     many signals (sign-out callback, auth-status edge, another tab) ask for it.
+     A failed attempt may be retried and never suppresses a later session. */
+  const lastReasonRef = useRef<IdentityMessage["reason"]>("sign-out");
+
+  useEffect(() => {
+    if (auth.status === "signed-in" && account.expectedUserId && account.store) {
+      coordinator.signedIn(account.expectedUserId, account.store);
+    }
+  }, [auth.status, account.expectedUserId, account.store, coordinator]);
+
+  /* Leaves no dialog, sheet, editor or onboarding step from the previous
+     account on screen. Persistent records are untouched; this is view state. */
+  const resetUi = useCallback(() => {
+    setTab("home");
+    setStack([]);
+    setQuickOpen(false);
+    setQuickPreset(null);
+    setOpenId(null);
+    setEditId(null);
+    setBusy(false);
+    setConfirmThing(null);
+    setConfirmWipe(false);
+    setObStep(0);
+    setObAuthOpen(false);
+  }, []);
+
+  /* Signs out of cloud authentication and tears down the local account state
+     (reminders, store, sync binding) before the gate can activate another
+     account. If teardown fails, useAuth keeps the app fail-closed. */
+  const invalidateDesk = desk.invalidate;
+  const handleSignOut = useCallback(async () => {
+    await auth.signOut(() => {
+      invalidateDesk();
+      return coordinator.signOut("sign-out");
+    });
+  }, [auth, coordinator, invalidateDesk]);
+
+  /* A sign-out that did not go through handleSignOut — a Supabase-initiated
+     session expiry — is owned by useAuth's registered teardown. This edge is a
+     fallback for the live instance: it clears view state and, only if the
+     coordinator still owns the account that just ended, asks it to tear down.
+     Checking the recorded owner matters because the next account can register
+     before a delayed effect runs; tearing that account down as if it were the
+     previous one would be worse than doing nothing here. The coordinator turns
+     a duplicate request into the same operation. */
+  const prevAuthRef = useRef({
+    status: auth.status,
+    userId: auth.user?.id ?? null,
+  });
+  useEffect(() => {
+    const prev = prevAuthRef.current;
+    prevAuthRef.current = {
+      status: auth.status,
+      userId: auth.user?.id ?? null,
+    };
+    if (prev.status !== "signed-in" || auth.status !== "signed-out") return;
+    resetUi();
+    invalidateDesk();
+    if (prev.userId === null || coordinator.currentUserId() !== prev.userId) {
+      return;
+    }
+    void coordinator.signOut("sign-out").then((result) => {
+      if (!result.ok) setTransitionFailure(result.reason);
+    });
+  }, [auth.status, auth.user?.id, coordinator, resetUi, invalidateDesk]);
+
+  /* Another tab signed out or switched. The signal carries no identity, so it
+     is never authority: hide this tab's records synchronously (the surface
+     change happens before the first await), then read the session that is
+     actually current. If it still names the account this tab displays, the
+     signal did not change this tab's owner and the view is restored without a
+     teardown. Otherwise the outgoing account is torn down and only then
+     reconciled with Supabase. A teardown failure stays blocked rather than
+     revealing the account again. */
+  const handleRemoteTransition = useCallback(
+    async (message: IdentityMessage) => {
+      const current = coordinator.currentUserId();
+      if (current === null) return;
+
+      setIdentityRevoked(true);
+
+      let next: string | null = null;
+      try {
+        next = await readSessionOwner();
+      } catch {
+        // An unreadable authority cannot prove this tab is still current;
+        // continue with teardown so nothing stale remains active.
+        next = null;
+      }
+
+      if (next !== null && next === current) {
+        setIdentityRevoked(false);
+        return;
+      }
+
+      lastReasonRef.current = message.reason;
+      resetUi();
+      invalidateDesk();
+      const result = await coordinator.signOut(message.reason, {
+        broadcast: false,
+      });
+      if (!result.ok) {
+        setTransitionFailure(result.reason);
+        return;
+      }
+      setTransitionFailure(null);
+      setAccountResetToken((token) => token + 1);
+      await auth.retrySession();
+      setIdentityRevoked(false);
+    },
+    [auth, coordinator, resetUi, invalidateDesk],
+  );
+
+  useEffect(
+    () =>
+      subscribeToIdentityChanges((message) => {
+        void handleRemoteTransition(message);
+      }),
+    [handleRemoteTransition],
+  );
+
+  /* Retries whichever local teardown failed. Account activation stays blocked
+     until it succeeds, so recovery can never expose the old account or let a
+     new one start over the old reminders. */
+  const retryLocalTransition = useCallback(async () => {
+    setTransitionFailure(null);
+    invalidateDesk();
+    const result = await coordinator.signOut(lastReasonRef.current, {
+      broadcast: false,
+    });
+    if (!result.ok) {
+      setTransitionFailure(result.reason);
+      return;
+    }
+    if (identityRevoked) {
+      setAccountResetToken((token) => token + 1);
+      await auth.retrySession();
+      setIdentityRevoked(false);
+    }
+  }, [auth, coordinator, identityRevoked, invalidateDesk]);
+
+  /* A local teardown failed, so the previous account's reminders or store may
+     still be active. Nothing else may open until it succeeds — including the
+     sign-in form — so this is a blocking surface with a single way forward. */
+  if (transitionFailure) {
+    return (
+      <div className="app" lang={desk.settings.locale}>
+        <div className="app__col">
+          <div className="app__body">
+            <div className="ob-brand" style={{ textAlign: "center" }}>
+              <Logo variant="wordmark" priority />
+              <h2 className="ob-h" style={{ marginTop: "1rem", marginBottom: "0.25rem" }}>
+                {t("auth.teardownTitle")}
+              </h2>
+              <p className="card-meta">{t("auth.teardownBody")}</p>
+              <p className="card-meta" role="alert">
+                {transitionFailure}
+              </p>
+            </div>
+            <button
+              className="btn btn--primary btn--lg btn--block"
+              style={{ marginTop: "1.5rem" }}
+              onClick={() => void retryLocalTransition()}
+            >
+              <Icon name="refresh" size={18} />
+              {t("app.retry")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* Scope error: the store belongs to a different account. No account records
+     are exposed. The user can retry to re-hydrate, or sign out and sign in
+     again to resolve the mismatch. */
+  if (desk.error && !desk.ready && !desk.loading) {
+    return (
+      <div className="app" lang={desk.settings.locale}>
+        <div className="app__col">
+          <div className="app__body">
+            <div className="ob-brand" style={{ textAlign: "center" }}>
+              <Logo variant="wordmark" priority />
+              <h2 className="ob-h" style={{ marginTop: "1rem", marginBottom: "0.25rem" }}>
+                {t("auth.sessionErrorTitle")}
+              </h2>
+              <p className="card-meta">{desk.error}</p>
+            </div>
+            <button
+              className="btn btn--primary btn--lg btn--block"
+              style={{ marginTop: "1.5rem" }}
+              onClick={() => void refresh()}
+            >
+              <Icon name="refresh" size={18} />
+              {t("app.retry")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   async function saveNew(values: ReturnType<typeof fromEditorValues>) {
     setBusy(true);
     try {
       const thing = await desk.addThing(values);
+      if (!thing) return;
       closeSheets();
       showToast(t("thing.savedToast", { name: thing.name }), "ok");
     } catch {
@@ -303,7 +591,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
 
   /* -------------------------------------------------------------- gates */
 
-  if (surface.kind === "onboarding") {
+  if (surface.kind === "onboarding" || surface.kind === "setup") {
     return (
       <div className="app" lang={desk.settings.locale}>
         <div className="app__col">
@@ -317,15 +605,6 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
               onStepChange={setObStep}
               onDone={(result) => void desk.completeOnboarding(result)}
               onSignIn={() => setObAuthOpen(true)}
-              onDemo={(locale) =>
-                void desk
-                  .completeOnboarding({
-                    categories: [],
-                    firstThings: [],
-                    locale,
-                  })
-                  .then(() => desk.loadSampleData())
-              }
             />
           </div>
           {obAuthOpen ? (
@@ -359,6 +638,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
                       locale: desk.settings.locale,
                     });
                   }}
+                  onSignOut={handleSignOut}
                 />
               </div>
             </>
@@ -395,11 +675,56 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
                 {t("auth.sessionErrorTitle")}
               </h2>
               <p className="card-meta">{t("auth.sessionErrorBody")}</p>
+              {auth.error?.code === "unsupported-browser" ? (
+                <p className="card-meta" role="alert">
+                  {auth.error.message}
+                </p>
+              ) : null}
             </div>
             <button
               className="btn btn--primary btn--lg btn--block"
               style={{ marginTop: "1.5rem" }}
               onClick={() => void auth.retrySession()}
+            >
+              <Icon name="refresh" size={18} />
+              {t("app.retry")}
+            </button>
+            {/* A signed-in session whose account id is unusable cannot be
+                repaired by re-reading it; signing out is the way back to a
+                usable gate. A failed session read has no account to leave. */}
+            {auth.status === "signed-in" ? (
+              <button
+                className="btn btn--soft btn--lg btn--block"
+                style={{ marginTop: "0.75rem" }}
+                onClick={() => void handleSignOut()}
+              >
+                {t("account.signOut")}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* The remote session is gone but this device could not finish clearing the
+     previous account. No account may open until the retry succeeds. */
+  if (surface.kind === "identity-recovery") {
+    return (
+      <div className="app" lang={desk.settings.locale}>
+        <div className="app__col">
+          <div className="app__body">
+            <div className="ob-brand" style={{ textAlign: "center" }}>
+              <Logo variant="wordmark" priority />
+              <h2 className="ob-h" style={{ marginTop: "1rem", marginBottom: "0.25rem" }}>
+                {t("auth.teardownTitle")}
+              </h2>
+              <p className="card-meta">{t("auth.teardownBody")}</p>
+            </div>
+            <button
+              className="btn btn--primary btn--lg btn--block"
+              style={{ marginTop: "1.5rem" }}
+              onClick={() => void auth.retryTransition()}
             >
               <Icon name="refresh" size={18} />
               {t("app.retry")}
@@ -433,6 +758,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
               auth={auth}
               initialMode={surface.kind === "recovery" ? "sign-in" : "welcome"}
               onDone={(message) => showToast(message, "ok")}
+              onSignOut={handleSignOut}
             />
           </main>
         </div>
@@ -521,7 +847,6 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
                 t={t}
                 onOpenThing={(thing) => {
                   setStack([]);
-                  setTab("life");
                   openThing(thing);
                 }}
               />
@@ -531,6 +856,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
                 auth={auth}
                 onClose={pop}
                 onDone={(message) => showToast(message, "ok")}
+                onSignOut={handleSignOut}
               />
             ) : tab === "home" ? (
               <HomeScreen
@@ -577,6 +903,7 @@ const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
                 sync={sync}
                 onOpenAuth={() => push({ kind: "auth" })}
                 onOpenConfirmDeleteAll={() => setConfirmWipe(true)}
+                onSignOut={handleSignOut}
                 showToast={showToast}
               />
             )}

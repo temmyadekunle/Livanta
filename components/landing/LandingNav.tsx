@@ -10,36 +10,57 @@
  * Accessibility notes worth not undoing:
  * - The toggle carries aria-expanded and aria-controls, so the state is
  *   announced rather than only visible.
- * - Escape closes the menu, and the links inside are real anchors, so the page
- *   works with the keyboard and stays crawlable.
+ * - Escape closes the menu and puts focus back on the toggle, and the links
+ *   inside are real anchors, so the page works with the keyboard and stays
+ *   crawlable.
+ * - Resizing to the desktop breakpoint closes the menu, so the body scroll
+ *   lock cannot outlive the panel that needed it.
  * - Scrolling to a section is native anchor behaviour, not a JS smooth-scroll,
  *   so a failed script degrades to a plain jump instead of nothing.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/Icons";
 import { Logo } from "@/components/Logo";
 
 export const NAV_LINKS = [
-  { href: "#problem", label: "The problem" },
   { href: "#features", label: "Features" },
   { href: "#how-it-works", label: "How it works" },
   { href: "#screens", label: "Screens" },
+  { href: "#availability", label: "Availability" },
+  { href: "#roadmap", label: "Roadmap" },
   { href: "#faq", label: "FAQ" },
 ] as const;
 
 export function LandingNav() {
   const [open, setOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   // Escape closes the menu. Bound on the document rather than the panel so it
-  // works wherever focus happens to be.
+  // works wherever focus happens to be, and focus returns to the control that
+  // opened it instead of being lost with the hidden links.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        toggleRef.current?.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // The desktop layout hides the panel at 1024px. Closing on that change keeps
+  // the body scroll lock from surviving into a viewport with no menu.
+  useEffect(() => {
+    if (!open) return;
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => {
+      if (desktop.matches) setOpen(false);
+    };
+    desktop.addEventListener("change", onChange);
+    return () => desktop.removeEventListener("change", onChange);
   }, [open]);
 
   // Lock the page behind the overlay so a scroll gesture does not move the
@@ -71,15 +92,16 @@ export function LandingNav() {
 
         <div className="lp-nav__actions">
           {/* The real app stays reachable from the marketing page. */}
-            <Link className="btn btn--ghost btn--sm lp-nav__app" href="/">
-              Open the app
-            </Link>
+          <Link className="btn btn--ghost btn--sm lp-nav__app" href="/">
+            Open the app
+          </Link>
           <a className="btn btn--primary btn--sm" href="#download">
             Download
           </a>
         </div>
 
         <button
+          ref={toggleRef}
           type="button"
           className="lp-nav__toggle"
           aria-expanded={open}
@@ -107,9 +129,9 @@ export function LandingNav() {
           ))}
         </nav>
         <div className="lp-menu__actions">
-            <Link className="btn btn--ghost" href="/" onClick={() => setOpen(false)}>
-              Open the app
-            </Link>
+          <Link className="btn btn--ghost" href="/" onClick={() => setOpen(false)}>
+            Open the app
+          </Link>
           <a className="btn btn--primary" href="#download" onClick={() => setOpen(false)}>
             Download the app
           </a>

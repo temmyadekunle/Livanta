@@ -1,7 +1,7 @@
 import { englishT } from "./risk.ts";
 import type { Translate } from "./i18n.ts";
 import { daysUntil } from "./risk.ts";
-import type { Alert, Thing } from "./types.ts";
+import type { Thing } from "./types.ts";
 import type { Settings } from "./settings.ts";
 
 export type PermissionState =
@@ -117,41 +117,23 @@ export function reminderCopy(
 }
 
 /**
- * Fires a browser notification for the most urgent live alert, at most once
- * per session per alert id.
+ * Shows one in-session notification. This is the only place a `Notification`
+ * is constructed; the reminder coordinator decides whether the delivery is
+ * still owned by the current account before calling it (ADR 0002 §5.3).
  */
-export function notifyUrgentAlert(
-  alert: Alert,
-  alreadyNotified: Set<string>,
-): boolean {
+export function showNotification(notification: {
+  id: string;
+  title: string;
+  body: string;
+}): boolean {
   if (typeof window === "undefined" || !("Notification" in window)) return false;
   if (Notification.permission !== "granted") return false;
-  if (alreadyNotified.has(alert.id)) return false;
 
   try {
-    new Notification(alert.title, { body: alert.message, tag: alert.id });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Fires a browser notification for a planned reminder (see lib/reminders.ts),
- * at most once per session per reminder id. This is the web's only delivery
- * path for lead-day and overdue reminders; native builds schedule the same
- * plan through lib/schedule.ts and do not depend on this.
- */
-export function notifyReminder(
-  reminder: { id: string; title: string; body: string },
-  alreadyNotified: Set<string>,
-): boolean {
-  if (typeof window === "undefined" || !("Notification" in window)) return false;
-  if (Notification.permission !== "granted") return false;
-  if (alreadyNotified.has(reminder.id)) return false;
-
-  try {
-    new Notification(reminder.title, { body: reminder.body, tag: reminder.id });
+    new Notification(notification.title, {
+      body: notification.body,
+      tag: notification.id,
+    });
     return true;
   } catch {
     return false;

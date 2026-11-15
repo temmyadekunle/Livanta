@@ -5,7 +5,7 @@ import {
   planReminders,
   reminderMomentOn,
 } from "../lib/reminders.ts";
-import { reminderNativeId, rescheduleReminders } from "../lib/schedule.ts";
+import { reminderNativeId, scheduleReminders } from "../lib/schedule.ts";
 import { assert, makeThing } from "./helpers.ts";
 
 /** Local clock, so the planner's wall-clock maths is deterministic in any TZ. */
@@ -196,6 +196,6 @@ test("reminderNativeId", async (t) => {
   });
 });
 
-test("rescheduleReminders reports unsupported without a DOM", async () => {
-  assert.equal(await rescheduleReminders([]), "unsupported");
+test("scheduleReminders reports unsupported without a DOM", async () => {
+  assert.equal(await scheduleReminders([]), "unsupported");
 });

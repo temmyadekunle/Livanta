@@ -7,6 +7,16 @@
 
 export const SESSION_TIMEOUT_MS = 10_000;
 
+/**
+ * Shortens the bounded wait for tests, so a hung authority can be exercised
+ * without waiting the production ten seconds. Production never calls this.
+ */
+let timeoutOverride: number | null = null;
+
+export function setSessionTimeoutForTesting(ms: number | null): void {
+  timeoutOverride = ms;
+}
+
 export class SessionTimeoutError extends Error {
   constructor() {
     super("Timed out reading the stored session.");
@@ -24,7 +34,7 @@ export class SessionTimeoutError extends Error {
  */
 export function withTimeout<T>(
   work: Promise<T>,
-  ms: number = SESSION_TIMEOUT_MS,
+  ms?: number,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let settled = false;
@@ -32,7 +42,7 @@ export function withTimeout<T>(
       if (settled) return;
       settled = true;
       reject(new SessionTimeoutError());
-    }, ms);
+    }, ms ?? timeoutOverride ?? SESSION_TIMEOUT_MS);
 
     work.then(
       (value) => {

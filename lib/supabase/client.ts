@@ -25,6 +25,19 @@ export function isCloudEnabled(): boolean {
 let cached: SupabaseClient | null = null;
 
 /**
+ * A client installed by tests, used instead of creating one from the build-time
+ * credentials. Production code never calls the setter; `isCloudEnabled` still
+ * reflects the real configuration, so a test opts into the cloud path by
+ * providing credentials as well as a client.
+ */
+let override: SupabaseClient | null = null;
+
+export function setSupabaseForTesting(client: SupabaseClient | null): void {
+  override = client;
+  cached = null;
+}
+
+/**
  * The shared client, or null when the app was built without cloud config.
  * Created on first use rather than at import time so nothing runs during the
  * static export and prerender pass.
@@ -35,6 +48,7 @@ let cached: SupabaseClient | null = null;
  * that would silently drift from the SQL.
  */
 export function getSupabase(): SupabaseClient | null {
+  if (override) return override;
   if (!isCloudEnabled()) return null;
   if (cached) return cached;
 

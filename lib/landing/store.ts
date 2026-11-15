@@ -15,6 +15,8 @@
  * only discovers it after tapping.
  */
 
+import { APK_SIZE_BYTES } from "@/lib/appVersion";
+
 /** Google Play listing. Empty until the app is published. */
 export const GOOGLE_PLAY_URL = "";
 
@@ -22,20 +24,17 @@ export const GOOGLE_PLAY_URL = "";
 export const APPLE_APP_STORE_URL = "";
 
 /**
- * Direct Android APK, published as a GitHub release. Verified live on
- * 2026-10-29: HTTP 200, Content-Type application/vnd.android.package-archive,
- * 7,032,943 bytes (v0.1.1, versionCode 5, adds local notification reminders).
- * This is a sideload build, not a store listing, so it lives beside the
- * (still empty) store URLs rather than inside them. iOS devices cannot
- * install it; the download controls only surface it where it works.
+ * The direct APK, its version and its size all come from `lib/appVersion.ts`,
+ * the same source the app metadata and Android build script are checked
+ * against. Nothing here should need editing for a release upload.
+ *
+ * This is a sideload build, not a store listing, so it lives beside the (still
+ * empty) store URLs rather than inside them. iOS devices cannot install it;
+ * the download controls only surface it where it works.
  */
-export const DIRECT_APK_URL =
-  "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.1/livanta-0.1.1-release.apk";
-/** Version label shown next to the APK link. Bump with each release upload. */
-export const APK_VERSION = "0.1.1";
-export const APK_SIZE_BYTES = 7_032_943;
+export { APK_SIZE_BYTES, APP_VERSION, DIRECT_APK_URL } from "@/lib/appVersion";
 
-/** Formats the APK size the way a download page should ("6.7 MB"). */
+/** Formats the APK size the way a download page should ("7.0 MB"). */
 export function apkSizeLabel(bytes: number = APK_SIZE_BYTES): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }

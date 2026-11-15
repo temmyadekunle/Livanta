@@ -36,8 +36,12 @@ export function CalendarScreen({
   dayDiff?: DayDiff;
 }) {
   const { t } = desk;
-  const [cursor, setCursor] = useState(new Date());
-  const [selected, setSelected] = useState(toISO(new Date()));
+  // A pinned clock must drive the grid and selection, not only the due labels.
+  const today = now ?? new Date();
+  const [cursor, setCursor] = useState(
+    () => new Date(today.getFullYear(), today.getMonth(), 1),
+  );
+  const [selected, setSelected] = useState(() => toISO(today));
 
   const byDate = useMemo(() => {
     const map = new Map<string, Thing[]>();
@@ -53,17 +57,17 @@ export function CalendarScreen({
 
   const cells = useMemo(() => monthMatrix(cursor.getFullYear(), cursor.getMonth()), [cursor]);
   const dow = useMemo(() => weekdayInitials(t.locale), [t.locale]);
-  const todayIso = toISO(new Date());
+  const todayIso = toISO(today);
 
   const selectedItems = byDate.get(selected) ?? [];
 
   const upcoming = useMemo(
     () =>
       desk.things
-        .filter((thing) => thing.status === "active" && thing.dueDate && thing.dueDate >= toISO(new Date()))
+        .filter((thing) => thing.status === "active" && thing.dueDate && thing.dueDate >= todayIso)
         .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""))
         .slice(0, 5),
-    [desk.things],
+    [desk.things, todayIso],
   );
 
   return (
@@ -147,7 +151,7 @@ export function CalendarScreen({
           className="btn btn--soft btn--block btn--sm"
           style={{ marginTop: "0.625rem" }}
           onClick={() => {
-            setCursor(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+            setCursor(new Date(today.getFullYear(), today.getMonth(), 1));
             setSelected(todayIso);
           }}
         >

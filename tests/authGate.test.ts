@@ -103,7 +103,7 @@ test("a signed-in user reaches the desk only once it is ready and onboarded", ()
     kind: "booting",
   });
   assert.deepEqual(resolveAppSurface({ ...signedIn, onboarded: false }), {
-    kind: "onboarding",
+    kind: "setup",
   });
   assert.deepEqual(resolveAppSurface(signedIn), { kind: "app" });
 });
@@ -143,12 +143,53 @@ test("a recovery session keeps the reset form reachable", () => {
   );
 });
 
+test("a pending teardown blocks the gate instead of offering another sign-in", () => {
+  assert.deepEqual(
+    resolveAppSurface({ ...signedOut, teardownPending: true }),
+    { kind: "identity-recovery" },
+  );
+  // Recovery still owns the surface when a reset link is what is pending.
+  assert.deepEqual(
+    resolveAppSurface({ ...signedOut, teardownPending: true, passwordResetReady: true }),
+    { kind: "identity-recovery" },
+  );
+});
+
+test("a signed-in session with an unusable identity is an error, not an empty desk", () => {
+  const signedIn: AppSurfaceInput = { ...signedOut, authStatus: "signed-in" };
+
+  assert.deepEqual(
+    resolveAppSurface({ ...signedIn, identityInvalid: true }),
+    { kind: "auth-error" },
+  );
+  // The flag cannot matter without a session; a signed-out device still gates.
+  assert.deepEqual(
+    resolveAppSurface({ ...signedOut, identityInvalid: true }),
+    { kind: "auth-gate" },
+  );
+});
+
+test("another tab's revocation hides the account before anything else is decided", () => {
+  const signedIn: AppSurfaceInput = {
+    ...signedOut,
+    authStatus: "signed-in",
+    identityRevoked: true,
+  };
+
+  assert.deepEqual(resolveAppSurface(signedIn), { kind: "auth-loading" });
+  assert.deepEqual(
+    resolveAppSurface({ ...signedIn, identityInvalid: true, teardownPending: true }),
+    { kind: "auth-loading" },
+  );
+});
+
 test("the auth surfaces block hardware back", () => {
   for (const kind of [
     "auth-loading",
     "auth-error",
     "auth-gate",
     "recovery",
+    "identity-recovery",
   ] as const) {
     assert.equal(isAuthSurface({ kind }), true, `${kind} should block back`);
   }

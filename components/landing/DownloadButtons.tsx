@@ -1,256 +1,124 @@
 "use client";
 
 /**
- * Download controls: the direct Android APK plus store badges.
+ * Download controls for the closing section.
  *
- * The APK link is the one real download today — it points at the verified
- * GitHub release. The store badges still read from lib/landing/store.ts and
- * render as non-interactive "coming soon" elements until each store listing
- * exists, so a visitor is never sent to a search that finds nothing. When a
- * real store URL lands in the config, that badge becomes an ordinary link with
- * no other change.
+ * Both real actions are ordinary links, rendered on the server as well as in
+ * the browser: the web app at `/`, and the Android APK published as a GitHub
+ * release. Nothing here depends on device detection, so the static export
+ * always contains the version, the size and a working destination even with
+ * JavaScript disabled. The iPhone note exists because the APK cannot be
+ * installed there, not because the link is hidden.
  *
- * The badge artwork below is a deliberately plain, self-drawn approximation, not
- * the official Google Play or Apple artwork. Shipping the official badges is a
- * trademark licence question and also requires their exact geometry, so replace
- * these with the official assets from each store's brand guidelines before
- * publishing. The accessible names and layout will not change when they do.
+ * Google Play and the App Store are shown as plain status cards — not buttons,
+ * not imitations of the official store badges. They stay inert until
+ * `lib/landing/store.ts` holds a real listing URL, so a visitor is never sent
+ * to a search that finds nothing.
  */
-import { useSyncExternalStore } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import { useSyncExternalStore } from "react";
 
 import { Icon } from "@/components/Icons";
 import {
-  APK_VERSION,
+  APP_VERSION,
   DIRECT_APK_URL,
   apkSizeLabel,
-  STORE_LIST,
+  STORES,
   storeForDevice,
   type Store,
 } from "@/lib/landing/store";
 
-/**
- * What the browser can actually do with an Android package. `pending` is the
- * server's answer: there is no navigator during static export, and treating
- * the unknown case as "do not offer the APK" means an iPhone never receives
- * markup it cannot use, even for the moment before hydration.
- */
-type DeviceKind = "android" | "ios" | "other" | "pending";
-
 const subscribeToNothing = () => () => {};
 
-const deviceOnThisDevice = (): DeviceKind => {
-  if (typeof navigator === "undefined") return "other";
-  const ua = navigator.userAgent;
-  if (/Android/i.test(ua)) return "android";
-  if (/iPad|iPhone|iPod/i.test(ua)) return "ios";
-  // iPadOS 13 and later report a desktop Macintosh user agent.
-  if (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1) return "ios";
-  return "other";
+/* Official artwork from the store owners' own asset hosts, served locally so
+   the static export and CSP keep working without a third-party request:
+   - Google Play: gstatic.com product icon, play_store_64dp@2x
+   - App Store: developer.apple.com app-store-96x96@2x
+   The icons are decorative; the store name carries the accessible label. */
+const STORE_LOGOS: Record<Store["id"], string> = {
+  "google-play": "/stores/google-play.png",
+  "app-store": "/stores/app-store.png",
 };
 
-const pendingOnServer = (): DeviceKind => "pending";
-
-/** Recognisable without impersonating the official artwork. */
-function PlayGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
-      <path d="M4 2.9v18.2a1 1 0 0 0 1.5.87l15.2-9.1a1 1 0 0 0 0-1.74L5.5 2.03A1 1 0 0 0 4 2.9Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function AppleGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
-      <path
-        d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.15-2.8.85-3.5.85s-1.85-.83-3-.81c-1.55.02-3 .9-3.8 2.3-1.6 2.8-.4 6.9 1.1 9.1.8 1.1 1.7 2.3 2.9 2.25 1.2-.05 1.6-.72 3-.72s1.85.72 3 .7c1.25 0 2-1.1 2.75-2.2.9-1.25 1.25-2.5 1.3-2.55-.05 0-2.4-.95-2.35-3.62ZM14.1 5.4c.65-.8 1.1-1.9.98-3-.95.04-2.1.65-2.8 1.45-.6.7-1.15 1.85-1 2.95 1.05.08 2.15-.55 2.82-1.4Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-const GLYPHS = { "google-play": PlayGlyph, "app-store": AppleGlyph } as const;
-
-function Badge({ store, size }: { store: Store; size: "lg" | "md" }) {
-  const Glyph = GLYPHS[store.id];
-  const className = `lp-badge lp-badge--${size}${store.available ? "" : " is-pending"}`;
-
-  const inner = (
-    <>
-      <Glyph />
-      <span className="lp-badge__text">
-        <span className="lp-badge__small">
-          {store.id === "app-store" ? "Download on the" : "Get it on"}
-        </span>
-        <span className="lp-badge__name">{store.name}</span>
-      </span>
-    </>
-  );
-
-  // A link when there is somewhere to go, a labelled placeholder when there is
-  // not. Deliberately not <a href="">: that is a real link that reloads the page
-  // and reads as broken to assistive tech.
-  if (!store.available) {
-    return (
-      <span
-        className={className}
-        aria-disabled="true"
-        title={`${store.name} listing is not live yet`}
-      >
-        {inner}
-        <span className="lp-badge__soon">{store.platform}</span>
-      </span>
-    );
-  }
-
-  return (
-    <a className={className} href={store.url} rel="noopener noreferrer">
-      {inner}
-    </a>
-  );
-}
-
 /**
- * The direct APK link. Rendered for Android visitors and for desktop visitors
- * who may be downloading it for a phone, never for an iPhone. The label names
- * Android explicitly, and the note below the row says the package installs on
- * Android only.
+ * A store that is not live yet. Deliberately inert: no anchor and no hover
+ * state. The logo identifies the store; "Coming Soon" states availability.
  */
-function ApkBadge({ size }: { size: "lg" | "md" }) {
+function StoreStatus({ store }: { store: Store }) {
   return (
-    <a
-      className={`lp-badge lp-badge--${size}`}
-      href={DIRECT_APK_URL}
-      rel="noopener noreferrer"
-      download
-    >
-      <PlayGlyph />
-      <span className="lp-badge__text">
-        <span className="lp-badge__small">Install directly</span>
-        <span className="lp-badge__name">Android APK</span>
+    <div className="lp-store-status">
+      <span className="lp-store-status__brand">
+        <Image
+          className="lp-store-status__logo"
+          src={STORE_LOGOS[store.id]}
+          alt=""
+          width={32}
+          height={32}
+        />
+        <span className="lp-store-status__name">{store.name}</span>
       </span>
-      <span className="lp-badge__soon">
-        v{APK_VERSION} · {apkSizeLabel()}
-      </span>
-    </a>
-  );
-}
-
-/**
- * The two store badges plus a status line.
- *
- * The APK badge is hidden on iPhone, where an Android package cannot be
- * installed, and on the server-rendered snapshot, which has no user agent to
- * read. It appears for Android and desktop visitors once the page hydrates.
- */
-export function DownloadButtons({
-  size = "lg",
-  align = "center",
-  showNote = true,
-  showApk = true,
-  className = "",
-}: {
-  size?: "lg" | "md";
-  align?: "center" | "start";
-  showNote?: boolean;
-  /** Off where a separate primary APK button already sits beside this row. */
-  showApk?: boolean;
-  className?: string;
-}) {
-  const published = STORE_LIST.filter((s) => s.available);
-  const device = useSyncExternalStore(
-    subscribeToNothing,
-    deviceOnThisDevice,
-    pendingOnServer,
-  );
-  const apkVisible = showApk && (device === "android" || device === "other");
-
-  return (
-    <div className={`lp-downloads lp-downloads--${align} ${className}`}>
-      <div className="lp-downloads__row">
-        {apkVisible && <ApkBadge size={size} />}
-        {STORE_LIST.map((store) => (
-          <Badge key={store.id} store={store} size={size} />
-        ))}
-      </div>
-      {showNote && (
-        <p className="lp-downloads__note">
-          {published.length === 0 ? (
-            device === "ios" ? (
-              <>
-                <strong>The App Store listing is not live yet.</strong> You can
-                use Livanta in Safari and add it to your Home Screen.
-              </>
-            ) : device === "android" ? (
-              <>
-                <strong>The Android APK installs today.</strong> Google Play and
-                the App Store listings are not live yet.
-              </>
-            ) : (
-              <>
-                <strong>The Android APK installs on Android phones.</strong>{" "}
-                Google Play and the App Store listings are not live yet.
-              </>
-            )
-          ) : published.length === 1 ? (
-            <>Available on {published[0].name}. The other store is not live yet.</>
-          ) : (
-            <>Free during the beta. Your data is stored on your device by default.</>
-          )}
-        </p>
-      )}
+      <span className="lp-store-status__state">Coming Soon</span>
     </div>
   );
 }
 
 /**
- * The closing call to action. Android and desktop visitors get the direct APK
- * beside the web-app link. An iPhone gets only the web-app action, because
- * there is no App Store listing and an APK cannot be installed there either.
+ * The closing download section: the web app, the APK, two store status cards,
+ * and the iPhone guidance for people who cannot use an APK.
  */
-export function FinalDownloadCta() {
-  const device = useSyncExternalStore(
-    subscribeToNothing,
-    deviceOnThisDevice,
-    pendingOnServer,
-  );
-
-  if (device !== "android" && device !== "other") {
-    return (
-      <Link className="btn btn--primary btn--lg" href="/">
-        Open Livanta in your browser
-      </Link>
-    );
-  }
-
+export function DownloadSection() {
   return (
-    <>
+    <div className="lp-download">
+      <Link className="lp-download__button lp-download__button--ghost" href="/">
+        <Icon name="globe" size={20} />
+        <span className="lp-download__text">
+          <span className="lp-download__title">Open the web app</span>
+          <span className="lp-download__meta">
+            Any modern browser · sign-in required
+          </span>
+        </span>
+      </Link>
+
       <a
-        className="btn btn--primary btn--lg"
+        className="lp-download__button"
         href={DIRECT_APK_URL}
         rel="noopener noreferrer"
         download
       >
-        <Icon name="download" size={18} />
-        {`Download for Android (APK · v${APK_VERSION} · ${apkSizeLabel()})`}
+        <Icon name="download" size={20} />
+        <span className="lp-download__text">
+          <span className="lp-download__title">Download for Android</span>
+          <span className="lp-download__meta">
+            APK · v{APP_VERSION} · {apkSizeLabel()}
+          </span>
+        </span>
       </a>
-      <Link className="btn btn--ghost btn--lg" href="/">
-        Try it in your browser
-      </Link>
-    </>
+
+      <div className="lp-download__stores">
+        <StoreStatus store={STORES["google-play"]} />
+        <StoreStatus store={STORES["app-store"]} />
+      </div>
+
+      <p className="lp-download__note">
+        The Google Play and App Store listings are not live yet.
+      </p>
+
+      <noscript>
+        <p className="lp-download__note">
+          JavaScript is off, but both buttons above are ordinary links: one
+          opens the web app, the other downloads the APK.
+        </p>
+      </noscript>
+
+      <p className="lp-download__ios">
+        <strong>On iPhone or iPad?</strong> Use the web app. The Android APK
+        cannot be installed there, so open Livanta in Safari, tap{" "}
+        <strong>Share</strong>, then choose <strong>Add to Home Screen</strong>.
+      </p>
+    </div>
   );
 }
-
-/**
- * The sticky mobile action bar.
- *
- * On a phone it routes to the store that matches the device when there is one,
- * and on Android falls back to the direct APK while the stores are still
- * unpublished. It stays off the page entirely on iOS with no App Store listing,
- * because an APK link under an iPhone thumb is a dead end.
- */
 
 /* Which store a device wants is a fact about the browser, not about anything
    React is managing, and it cannot change while the page is open. So there is
@@ -267,10 +135,21 @@ const androidOnThisDevice = (): boolean =>
   typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 
 export function StickyCta() {
-  const store = useSyncExternalStore(subscribeToNothing, storeOnThisDevice, noStoreOnServer);
-  const isAndroid = useSyncExternalStore(subscribeToNothing, androidOnThisDevice, () => false);
+  const store = useSyncExternalStore(
+    subscribeToNothing,
+    storeOnThisDevice,
+    noStoreOnServer,
+  );
+  const isAndroid = useSyncExternalStore(
+    subscribeToNothing,
+    androidOnThisDevice,
+    () => false,
+  );
 
-  const apkFallback = !store && isAndroid && DIRECT_APK_URL.length > 0;
+  // Before publication Android phones scroll to the one APK action instead of
+  // repeating it. A second download button in a fixed bar is both a duplicate
+  // and easy to hit by accident.
+  const apkFallback = !store && isAndroid;
 
   // Nothing this device can act on, so the bar stays out of the way entirely
   // rather than parking a dead button over the bottom of every page.
@@ -284,21 +163,20 @@ export function StickyCta() {
           <span>
             {store
               ? `Get it on ${store.name}`
-              : `Android APK · v${APK_VERSION}`}
+              : `Android APK · v${APP_VERSION}`}
           </span>
         </span>
         {store ? (
-          <a className="btn btn--primary btn--sm" href={store.url} rel="noopener noreferrer">
+          <a
+            className="btn btn--primary btn--sm"
+            href={store.url}
+            rel="noopener noreferrer"
+          >
             Download
           </a>
         ) : (
-          <a
-            className="btn btn--primary btn--sm"
-            href={DIRECT_APK_URL}
-            rel="noopener noreferrer"
-            download
-          >
-            Download
+          <a className="btn btn--primary btn--sm" href="#download">
+            Get the app
           </a>
         )}
       </div>

@@ -16,6 +16,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./Icons";
+import { DIRECT_APK_URL } from "@/lib/appVersion";
 import {
   activateWaitingWorker,
   isSupported,
@@ -36,9 +37,6 @@ function detectPlatform() {
   const android = /android/i.test(ua);
   return { ios, safari, android };
 }
-
-const ANDROID_APK_URL =
-  "https://github.com/temmyadekunle/Livanta/releases/download/v0.1.1/livanta-0.1.1-release.apk";
 
 /**
  * Whether the app is already running as an installed app. Read lazily rather
@@ -147,7 +145,7 @@ export default function InstallPrompt() {
       <div className="installbar" role="region" aria-label="Get Livanta for Android">
         <Icon name="download" />
         <span className="installbar__text">Get the Livanta app for Android</span>
-        <a className="installbar__btn" href={ANDROID_APK_URL}>
+        <a className="installbar__btn" href={DIRECT_APK_URL}>
           Download APK
         </a>
         <button

@@ -26,6 +26,8 @@ const stubAuth = (overrides: Partial<UseAuth> = {}): UseAuth => ({
   updatePassword: async () => true,
   cancelPasswordReset: () => {},
   signOut: async () => {},
+  teardownPending: false,
+  retryTransition: async () => {},
   clearError: () => {},
   retrySession: async () => {},
   signInWithGoogle: async () => true,

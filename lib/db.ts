@@ -214,6 +214,42 @@ class StoreConnectionLostError extends Error {
   }
 }
 
+/**
+ * Raised when a mutation or read is attempted on a LocalStore whose scope
+ * has been closed/released. Prevents obsolete store references from reopening
+ * or writing to a released account database.
+ */
+export class StoreClosedError extends Error {
+  constructor() {
+    super("This local store has been closed and cannot be used.");
+    this.name = "StoreClosedError";
+  }
+}
+
+/** Tracks every LocalStore instance per database name so closeScope can mark
+ *  all obsolete references for a scope as closed, not just the caller's. */
+const storeRegistry = new Map<string, Set<LocalStore>>();
+
+function registerStore(store: LocalStore): void {
+  let set = storeRegistry.get(store.databaseName);
+  if (!set) {
+    set = new Set();
+    storeRegistry.set(store.databaseName, set);
+  }
+  set.add(store);
+}
+
+function closeStoresForScope(scope: LocalScope): void {
+  const name = databaseNameForScope(scope);
+  const set = storeRegistry.get(name);
+  if (!set) return;
+  for (const store of set) {
+    // Can't set a readonly property from here; use the internal marker.
+    (store as { _closed: boolean })._closed = true;
+  }
+  storeRegistry.delete(name);
+}
+
 function isInvalidStateError(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -246,6 +282,17 @@ async function forgetHandle(name: string, db: IDBDatabase): Promise<void> {
   }
 }
 
+/**
+ * Test hook: when set to a positive number, every IndexedDB transaction
+ * completion is delayed by that many milliseconds. Used to test in-flight
+ * operation behavior during store close. Reset to 0 after each test.
+ */
+let _txnDelayMs = 0;
+
+export function __setTxnDelay(ms: number): void {
+  _txnDelayMs = ms;
+}
+
 function run<T>(
   db: IDBDatabase,
   store: StoreName,
@@ -272,7 +319,13 @@ function run<T>(
       return;
     }
 
-    request.onsuccess = () => resolve(request.result as T);
+    request.onsuccess = () => {
+      if (_txnDelayMs > 0) {
+        setTimeout(() => resolve(request.result as T), _txnDelayMs);
+      } else {
+        resolve(request.result as T);
+      }
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -309,6 +362,9 @@ export interface SettingRow<T> {
   value: T;
 }
 
+/** How long close() waits for in-flight operations before releasing anyway. */
+const CLOSE_DRAIN_TIMEOUT_MS = 5000;
+
 /**
  * A database-bound view of the local records.
  *
@@ -319,29 +375,142 @@ export interface SettingRow<T> {
 export class LocalStore {
   readonly scope: LocalScope;
   readonly databaseName: string;
+  /** Internal closed marker, set by closeScope or close(). Not readonly so
+   *  closeStoresForScope can mark all stores for a scope as closed. */
+  _closed = false;
+  /** Set of in-flight operation promises. close() waits for these to drain
+   *  before closing the database, so an in-flight write completes before the
+   *  store is released. Bounded by a timeout to avoid deadlocks. */
+  private activeOps = new Set<Promise<unknown>>();
+  /** Shared close operation, so concurrent callers cannot run two closes. */
+  private _closing: Promise<void> | null = null;
 
   constructor(scope: LocalScope) {
     this.scope = normalizeScope(scope);
     this.databaseName = databaseNameForScope(this.scope);
+    registerStore(this);
+  }
+
+  /** True when this store's scope has been closed/released. All mutation and
+   *  read paths reject while closed, so an obsolete store reference cannot
+   *  reopen or write to a released account database. */
+  get closed(): boolean {
+    return this._closed;
   }
 
   /**
-   * Runs one operation against this store's database. A connection that was
-   * closed underneath us is replaced and the operation is retried exactly
+   * Closes this store and releases its scope. After this completes, every
+   * method on this store rejects with StoreClosedError. Idempotent, and safe to
+   * call concurrently: every caller shares one close operation.
+   *
+   * Operations already in flight when close() is called are allowed to finish
+   * (bounded by a timeout) before the connection is released. A failed
+   * operation does not abort the drain, and the cleanup path always runs, so a
+   * released account database is never left cached and open.
+   */
+  close(): Promise<void> {
+    if (this._closed) return Promise.resolve();
+    if (this._closing) return this._closing;
+    this._closing = this.release();
+    return this._closing;
+  }
+
+  private async release(): Promise<void> {
+    const ops = Array.from(this.activeOps);
+    if (ops.length > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, CLOSE_DRAIN_TIMEOUT_MS);
+      });
+      try {
+        // allSettled: one failing write must not release the connection while
+        // other writes are still in flight, and its rejection is observed here
+        // rather than becoming an unhandled rejection.
+        await Promise.race([Promise.allSettled(ops), deadline]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    }
+
+    this._closed = true;
+    closeStoresForScope(this.scope);
+    await closeScope(this.scope);
+  }
+
+  /**
+   * Runs one operation against this store's database. Rejects immediately if
+   * the store has been closed. Tracks the operation so close() can wait for
+   * in-flight writes to drain before releasing the store. A connection that
+   * was closed underneath us is replaced and the operation is retried exactly
    * once; any other failure, or a failure after a transaction started, is
    * returned to the caller untouched.
    */
   private async withDatabase<T>(
     work: (db: IDBDatabase) => Promise<T>,
   ): Promise<T> {
-    const first = await openDatabaseByName(this.databaseName);
+    if (this._closed || this._closing) {
+      throw new StoreClosedError();
+    }
+
+    // Register the operation before any async suspension so close() can
+    // observe it and wait for in-flight writes to drain.
+    let opResolve!: (value: T) => void;
+    let opReject!: (error: unknown) => void;
+    const op = new Promise<T>((resolve, reject) => {
+      opResolve = resolve;
+      opReject = reject;
+    });
+    // The tracked handle exists only for close() to wait on. Its rejection is
+    // already delivered to the caller through withDatabase's promise, so this
+    // observer prevents a second, unhandled rejection.
+    void op.catch(() => {});
+
+    this.activeOps.add(op);
     try {
-      return await work(first);
+      const first = await openDatabaseByName(this.databaseName);
+      // An operation registered before close() was called may finish and be
+      // drained; `_closed` only flips once the release has actually happened.
+      if (this._closed) {
+        opReject(new StoreClosedError());
+        throw new StoreClosedError();
+      }
+
+      try {
+        const result = await work(first);
+        opResolve(result);
+        return result;
+      } catch (error) {
+        if (!(error instanceof StoreConnectionLostError)) {
+          opReject(error);
+          throw error;
+        }
+        if (this._closed) {
+          opReject(new StoreClosedError());
+          throw new StoreClosedError();
+        }
+        await forgetHandle(this.databaseName, first);
+        if (this._closed) {
+          opReject(new StoreClosedError());
+          throw new StoreClosedError();
+        }
+        const second = await openDatabaseByName(this.databaseName);
+        if (this._closed) {
+          opReject(new StoreClosedError());
+          throw new StoreClosedError();
+        }
+        const result2 = await work(second);
+        opResolve(result2);
+        return result2;
+      }
     } catch (error) {
-      if (!(error instanceof StoreConnectionLostError)) throw error;
-      await forgetHandle(this.databaseName, first);
-      const second = await openDatabaseByName(this.databaseName);
-      return work(second);
+      // A retried or pre-open failure would otherwise leave the tracked
+      // promise pending, forcing close() to wait out its full drain timeout.
+      // Settling with the caller's own error keeps the drain instant and still
+      // rejects with the original object.
+      opReject(error);
+      throw error;
+    } finally {
+      this.activeOps.delete(op);
     }
   }
 

@@ -3,10 +3,10 @@ import {
   exportPayload,
   leadDaysCrossed,
   notificationPermission,
-  notifyUrgentAlert,
   reminderCopy,
+  showNotification,
 } from "../lib/notifications.ts";
-import { assert, iso, makeAlert, makeThing, NOW } from "./helpers.ts";
+import { assert, iso, makeThing, NOW } from "./helpers.ts";
 
 test("notificationPermission is unsupported without a DOM", () => {
   assert.equal(notificationPermission(), "unsupported");
@@ -17,8 +17,11 @@ test("requestNotificationPermission is unsupported without a DOM", async () => {
   assert.equal(await requestNotificationPermission(), "unsupported");
 });
 
-test("notifyUrgentAlert is a no-op without a DOM", () => {
-  assert.equal(notifyUrgentAlert(makeAlert(), new Set()), false);
+test("showNotification is a no-op without a DOM", () => {
+  assert.equal(
+    showNotification({ id: "a", title: "Title", body: "Body" }),
+    false,
+  );
 });
 
 test("leadDaysCrossed", async (t) => {

@@ -51,6 +51,7 @@ const {
   putSetting,
   putThing,
   userScope,
+  __setTxnDelay,
 } = await import("../lib/db.ts");
 
 // Captured before any test runs, so importing db.ts itself must not open one.
@@ -644,4 +645,112 @@ test("a failure after a transaction starts is never retried", async () => {
   }
 
   assert.equal(attempts, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Close / operation-tracking behaviour (R5)
+// ---------------------------------------------------------------------------
+
+test("close() drains a failing in-flight write and still releases the connection", async () => {
+  const userId = newUser();
+  const store = createLocalStore(userScope(userId));
+  await store.putThing(makeThing({ id: "seed" }));
+
+  const originalTransaction = FakeIDBDatabase.prototype.transaction;
+  FakeIDBDatabase.prototype.transaction = function (
+    this: IDBDatabase,
+    storeNames: string | string[],
+    mode?: IDBTransactionMode,
+  ) {
+    if (mode === "versionchange") {
+      return originalTransaction.call(this, storeNames, mode);
+    }
+    throw invalidStateError();
+  } as typeof FakeIDBDatabase.prototype.transaction;
+
+  try {
+    const write = store.putThing(makeThing({ id: "failing" }));
+    const close = store.close();
+
+    await assert.rejects(write, isInvalidStateName);
+    await close;
+  } finally {
+    FakeIDBDatabase.prototype.transaction = originalTransaction;
+  }
+
+  assert.equal(store.closed, true, "close() completes even though an operation failed");
+
+  // The failed operation's connection was forgotten, so the database is not
+  // left cached: a fresh store reopens it and the original record survives.
+  const before = openCalls;
+  const reopened = createLocalStore(userScope(userId));
+  assert.deepEqual(
+    (await reopened.getAllThings()).map((thing) => thing.id),
+    ["seed"],
+  );
+  assert.equal(openCalls, before + 1, "a released connection must not be reused");
+  await reopened.close();
+});
+
+test("close() observes a rejection raised after the transaction started", async () => {
+  const store = createLocalStore(userScope(newUser()));
+  await store.putThing(makeThing({ id: "seed" }));
+
+  const originalTransaction = FakeIDBDatabase.prototype.transaction;
+  FakeIDBDatabase.prototype.transaction = function (
+    this: IDBDatabase,
+    storeNames: string | string[],
+    mode?: IDBTransactionMode,
+  ) {
+    if (mode === "versionchange") {
+      return originalTransaction.call(this, storeNames, mode);
+    }
+    return {
+      objectStore() {
+        throw invalidStateError();
+      },
+    } as unknown as IDBTransaction;
+  } as typeof FakeIDBDatabase.prototype.transaction;
+
+  try {
+    const write = store.putThing(makeThing({ id: "uncertain" }));
+    const close = store.close();
+
+    // The caller keeps its own error; close() is not rejected by it.
+    await assert.rejects(write, isInvalidStateName);
+    await close;
+  } finally {
+    FakeIDBDatabase.prototype.transaction = originalTransaction;
+  }
+
+  assert.equal(store.closed, true);
+});
+
+test("concurrent close() calls share one release and stay idempotent", async () => {
+  const store = createLocalStore(userScope(newUser()));
+  await store.putThing(makeThing({ id: "seed" }));
+
+  __setTxnDelay(25);
+  let write: Promise<unknown>;
+  try {
+    write = store.putThing(makeThing({ id: "pending" }));
+    const first = store.close();
+    const second = store.close();
+    assert.equal(first, second, "close() returns the same drain operation");
+    await Promise.all([first, second, write]);
+  } finally {
+    __setTxnDelay(0);
+  }
+
+  await store.close();
+  assert.equal(store.closed, true);
+
+  await assert.rejects(
+    store.getAllThings(),
+    (error: unknown) =>
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      (error as { name?: unknown }).name === "StoreClosedError",
+  );
 });

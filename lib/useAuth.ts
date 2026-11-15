@@ -18,11 +18,17 @@
  */
 
 import { useCallback, useSyncExternalStore } from "react";
-import type { User } from "@supabase/supabase-js";
+import type { Session, User } from "@supabase/supabase-js";
 
 import { getSupabase, isCloudEnabled } from "./supabase/client.ts";
 import { createSessionAttempts, withTimeout } from "./sessionTimeout.ts";
 import { performSignOut } from "./signOut.ts";
+import { readSessionOwner } from "./sessionAuthority.ts";
+import { identityTransportKind } from "./identityTransport.ts";
+import {
+  ensureReminderOwner,
+  signedOutReminderRecoveryNeeded,
+} from "./reminders/ownerTransition.ts";
 
 /**
  * `error` is a terminal fail-closed state: the persisted session could not be
@@ -43,6 +49,8 @@ export interface AuthError {
     | "email-taken"
     | "rate-limited"
     | "sign-out-failed"
+    | "teardown-failed"
+    | "unsupported-browser"
     | "unknown";
   message: string;
 }
@@ -56,6 +64,14 @@ export interface AuthError {
 export type SignUpOutcome =
   | { readonly ok: true; readonly needsEmailConfirmation: boolean }
   | { readonly ok: false };
+
+/**
+ * Local teardown the app runs after the remote session has ended. Returning
+ * `{ ok: false }` keeps the app on a blocking recovery surface: the account is
+ * signed out, but its reminders or store were not released, so no other
+ * account may activate yet.
+ */
+export type TeardownCallback = () => Promise<{ ok: boolean } | void>;
 
 export interface UseAuth {
   enabled: boolean;
@@ -82,7 +98,14 @@ export interface UseAuth {
    * never succeed.
    */
   cancelPasswordReset: () => void;
-  signOut: () => Promise<void>;
+  signOut: (onSignedOut?: TeardownCallback) => Promise<void>;
+  /**
+   * True when the remote session ended but local teardown has not succeeded.
+   * No account may activate while this is set; see `retryTransition`.
+   */
+  teardownPending: boolean;
+  /** Re-runs the failed local teardown of the account that just signed out. */
+  retryTransition: () => Promise<void>;
   clearError: () => void;
   /** Re-reads the persisted session after an initialization failure. */
   retrySession: () => Promise<void>;
@@ -145,6 +168,7 @@ interface AuthState {
   error: AuthError | null;
   needsEmailConfirmation: boolean;
   passwordResetReady: boolean;
+  teardownPending: boolean;
 }
 
 /** Seeded from a constant, so an unconfigured build never needs a state update. */
@@ -155,12 +179,193 @@ function initialState(): AuthState {
     error: null,
     needsEmailConfirmation: isCloudEnabled() && readPendingConfirmation(),
     passwordResetReady: false,
+    teardownPending: false,
   };
 }
 
 let state: AuthState = initialState();
 const listeners = new Set<() => void>();
 let started = false;
+
+let sessionAttempts = createSessionAttempts();
+
+/**
+ * The app root registers how to release a session that ended without an
+ * explicit sign-out call — Supabase expiry, or another tab replacing it. It
+ * records the app-wide coordinator, so it survives the remount performed when
+ * the auth status changes.
+ */
+let registeredSessionTeardown: TeardownCallback | null = null;
+
+/**
+ * The teardown to retry after the remote sign-out succeeded but local teardown
+ * failed. It is a pending operation rather than renderable state, so it lives
+ * outside the store; the store carries only the `teardownPending` flag.
+ */
+let pendingTeardown: TeardownCallback | null = null;
+
+/** One settlement at a time, shared by every caller that observes the same end. */
+let settlingTeardown: Promise<boolean> | null = null;
+
+/**
+ * The newest session Supabase has announced but which has not been published.
+ * It is held here when a teardown must finish first, so a foreign tab's session
+ * cannot appear over the outgoing account.
+ */
+let queuedSession: Session | null = null;
+let drainingSessions: Promise<void> | null = null;
+
+/** The account whose session is currently published in this tab. */
+let activeUserId: string | null = null;
+
+/** Registers the teardown used when Supabase ends a session on its own. */
+export function registerSessionTeardown(
+  teardown: TeardownCallback | null,
+): void {
+  registeredSessionTeardown = teardown;
+}
+
+/** Clears auth module state between tests. */
+export function resetAuthForTesting(): void {
+  state = initialState();
+  listeners.clear();
+  started = false;
+  sessionAttempts = createSessionAttempts();
+  registeredSessionTeardown = null;
+  pendingTeardown = null;
+  settlingTeardown = null;
+  queuedSession = null;
+  drainingSessions = null;
+  activeUserId = null;
+}
+
+function teardownSucceeded(result: { ok: boolean } | void): boolean {
+  return result === undefined || result.ok;
+}
+
+function teardownFailure(): AuthError {
+  return {
+    code: "teardown-failed",
+    message:
+      "You are signed out, but this device could not finish clearing the previous account. Nothing else can open until it does.",
+  };
+}
+
+/**
+ * An auth-enabled build needs at least one way to tell other tabs that the
+ * session changed before it may open an account store (ADR 0002 D5/B2.2). No
+ * transport is a capability failure, not a retryable network error.
+ */
+function transportUnavailable(): boolean {
+  return isCloudEnabled() && identityTransportKind() === "unavailable";
+}
+
+function unsupportedTransportError(): AuthError {
+  return {
+    code: "unsupported-browser",
+    message:
+      "This browser cannot coordinate account changes between tabs, so Livanta cannot open your account safely. Update your browser, or reload in a supported one.",
+  };
+}
+
+/**
+ * A teardown that re-establishes reminder ownership instead of only repeating
+ * a cleanup. A failed ownership transition is not cleared by pressing retry:
+ * the next attempt must again cancel and mark the current owner, so the block
+ * cannot be lifted while the native reminder state is still unknown.
+ */
+function reminderOwnershipTeardown(ownerId: string | null): TeardownCallback {
+  return async () => {
+    let target = ownerId;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const outcome = await ensureReminderOwner({
+        ownerId: target,
+        confirmOwner: readSessionOwner,
+      });
+      if (outcome.status === "ready") return { ok: true };
+      if (outcome.status === "failed") return { ok: false };
+      // The session moved while this transition waited for the lock. Reconcile
+      // against the session that is actually current, so the block cannot
+      // outlive the account it was protecting.
+      target = await readSessionOwner();
+    }
+    return { ok: false };
+  };
+}
+
+/**
+ * The retry operation for a block created by unavailable authentication.
+ *
+ * It repeats the unresolved transition: cancel everything and record no owner,
+ * without needing to know which account last used this device. A session that
+ * has become readable meanwhile is not a failure of this operation — that
+ * account still has to pass its own activation barrier, which cancels before it
+ * may be published.
+ */
+function unresolvedReminderTeardown(): TeardownCallback {
+  return async () => {
+    const outcome = await ensureReminderOwner({
+      ownerId: null,
+      confirmOwner: readSessionOwner,
+      unresolved: true,
+    });
+    return outcome.status === "failed" ? { ok: false } : { ok: true };
+  };
+}
+
+/**
+ * Runs a teardown left over from a failed sign-out before any new session is
+ * allowed to activate. Returns false when the account cannot be cleared, so
+ * the caller must not sign in.
+ *
+ * Only one attempt runs at a time. Concurrent callers (a session event, a
+ * retry button, a sign-in attempt) share the same result rather than each
+ * asking the coordinator to tear the session down again.
+ */
+async function settlePendingTeardown(): Promise<boolean> {
+  if (settlingTeardown) return settlingTeardown;
+
+  // A block without a recorded operation is the fail-closed branch that ran
+  // when no teardown was installed yet. Adopt the app root's teardown if it has
+  // registered since; until one exists, stay blocked rather than publish over
+  // an account that was never verified as torn down.
+  if (!pendingTeardown && state.teardownPending) {
+    if (!registeredSessionTeardown) return false;
+    pendingTeardown = registeredSessionTeardown;
+  }
+
+  const teardown = pendingTeardown;
+  if (!teardown) return true;
+
+  emit({ error: null });
+  const attempt = (async () => {
+    let result: { ok: boolean } | void;
+    try {
+      result = await teardown();
+    } catch {
+      // A callback that throws is a failed teardown, not a reason to publish
+      // the next account.
+      result = { ok: false };
+    }
+
+    if (!teardownSucceeded(result)) {
+      // Deliberately retained: every later session must pass through this
+      // teardown before it can be published, and the retry path needs it.
+      emit({ teardownPending: true, error: teardownFailure() });
+      return false;
+    }
+
+    if (pendingTeardown === teardown) pendingTeardown = null;
+    emit({ teardownPending: false, error: null });
+    return true;
+  })();
+
+  settlingTeardown = attempt;
+  void attempt.finally(() => {
+    if (settlingTeardown === attempt) settlingTeardown = null;
+  });
+  return attempt;
+}
 
 /**
  * Replaces the state object rather than mutating it, which is what lets
@@ -173,6 +378,198 @@ function emit(patch: Partial<AuthState>) {
 
 const getSnapshot = () => state;
 
+/** The account this tab last published, even while a session read is loading. */
+function currentActiveUserId(): string | null {
+  if (activeUserId !== null) return activeUserId;
+  return state.status === "signed-in" ? (state.user?.id ?? null) : null;
+}
+
+function publishSignedIn(session: Session): void {
+  activeUserId = session.user.id;
+  writePendingConfirmation(false);
+  emit({
+    user: session.user,
+    status: "signed-in",
+    needsEmailConfirmation: false,
+  });
+}
+
+/** Hides the outgoing account immediately; teardown still owns its resources. */
+function beginSignedOut(): void {
+  activeUserId = null;
+  emit({ user: null, status: "signed-out" });
+}
+
+/**
+ * Publishes the newest queued session only once any teardown has succeeded.
+ *
+ * A session for a different account is a switch: the previous account is
+ * hidden and torn down first. A failed teardown leaves the newest session
+ * queued, so repeated events cannot leak it into the UI, and a successful
+ * retry can publish it without asking Supabase again.
+ */
+async function drainSessionQueue(): Promise<void> {
+  while (queuedSession) {
+    const next = queuedSession;
+    const current = currentActiveUserId();
+
+    if (current !== null && next.user.id !== current) {
+      if (!pendingTeardown) {
+        if (!registeredSessionTeardown) {
+          // No teardown is installed, so activating another account would be
+          // unverified. Fail closed instead of publishing over the old one.
+          beginSignedOut();
+          emit({ teardownPending: true, error: teardownFailure() });
+          return;
+        }
+        pendingTeardown = registeredSessionTeardown;
+      }
+      beginSignedOut();
+    }
+
+    if (pendingTeardown) {
+      // A failed settlement waits for the explicit retry button. Re-running it
+      // on every duplicate auth event would hammer a failing native plugin.
+      if (state.teardownPending) return;
+      if (!(await settlePendingTeardown())) return;
+      continue;
+    }
+
+    // A session that only refreshes the account already on screen is not a
+    // handover: nothing on the device changed owner, so cancelling here would
+    // wipe the plan the running app has already scheduled. The transition is
+    // reserved for an account becoming visible for the first time in this tab.
+    const alreadyPublished =
+      current !== null && next.user.id === current && state.status === "signed-in";
+
+    if (!alreadyPublished) {
+      // Ownership is established before the account becomes visible, so the
+      // native reminders that are still scheduled cannot belong to whoever used
+      // this device last. A failure keeps the account queued and the app blocked.
+      const ownership = await ensureReminderOwner({
+        ownerId: next.user.id,
+        confirmOwner: readSessionOwner,
+      });
+      if (ownership.status === "changed") {
+        // A newer session replaced this one mid-transition. Re-read rather than
+        // publish an account whose ownership could not be confirmed.
+        queuedSession = null;
+        void applySession();
+        return;
+      }
+      if (ownership.status === "failed") {
+        beginSignedOut();
+        pendingTeardown = reminderOwnershipTeardown(next.user.id);
+        emit({ teardownPending: true, error: teardownFailure() });
+        return;
+      }
+    }
+
+    queuedSession = null;
+    publishSignedIn(next);
+  }
+}
+
+async function adoptSession(session: Session): Promise<void> {
+  // An auth event must not publish an account when this tab cannot announce
+  // the session to its siblings. Nothing is opened; retry re-checks.
+  if (transportUnavailable()) {
+    queuedSession = null;
+    emit({ user: null, status: "error", error: unsupportedTransportError() });
+    return;
+  }
+
+  queuedSession = session;
+  if (drainingSessions) return drainingSessions;
+
+  const drain = drainSessionQueue();
+  drainingSessions = drain;
+  try {
+    await drain;
+  } finally {
+    if (drainingSessions === drain) drainingSessions = null;
+  }
+}
+
+/**
+ * Ends the published session. If the app root installed a teardown, it runs
+ * before any queued session can activate — including a session produced by
+ * another tab. The signed-out status is published first so the outgoing
+ * account's records leave the screen while its store is being closed.
+ */
+async function endSession(): Promise<void> {
+  // A session end is strictly newer than any session still waiting to be
+  // published, so a queued session must not be activated later by a retry.
+  queuedSession = null;
+
+  const hadAccount = currentActiveUserId() !== null;
+  activeUserId = null;
+
+  if (hadAccount && !pendingTeardown && registeredSessionTeardown) {
+    pendingTeardown = registeredSessionTeardown;
+  }
+
+  // A previous launch may have ended without finishing its reminder
+  // transition. The signed-out app is not usable until this device proves its
+  // native reminders no longer belong to anyone.
+  if (!pendingTeardown) {
+    let recoveryNeeded = true;
+    try {
+      recoveryNeeded = signedOutReminderRecoveryNeeded();
+    } catch {
+      // An unreadable marker is not evidence that the reminders are clean.
+      recoveryNeeded = true;
+    }
+    if (recoveryNeeded) pendingTeardown = reminderOwnershipTeardown(null);
+  }
+
+  emit({ user: null, status: "signed-out" });
+
+  if (!pendingTeardown || state.teardownPending) return;
+  await settlePendingTeardown();
+}
+
+/**
+ * Blocks the app because the session could not be read, and makes sure no
+ * account's reminders survive that block (ADR 0002 §5.3, cold start).
+ *
+ * The cancellation does not know which account scheduled the reminders, and
+ * does not need to: it is unconditional, runs under the identity lock and
+ * records `active` for no owner. If it cannot complete, the marker stays
+ * `transitioning` and the app stays on the recovery surface with a retry.
+ */
+async function failClosedOnUnresolvedSession(attempt: number): Promise<void> {
+  if (!sessionAttempts.current(attempt)) return;
+
+  // A published account, or one waiting to be published, already owns the
+  // reminders through its own barrier. A read that failed alongside it is not
+  // authority to cancel that account's plan.
+  if (state.status === "signed-in" || queuedSession !== null) return;
+
+  emit({ user: null, status: "error" });
+
+  const outcome = await ensureReminderOwner({
+    ownerId: null,
+    confirmOwner: readSessionOwner,
+    unresolved: true,
+    stillUnresolved: () =>
+      state.status !== "signed-in" && queuedSession === null,
+  });
+
+  if (!sessionAttempts.current(attempt)) return;
+
+  if (outcome.status === "changed") {
+    // The authority answered after all. Reconcile with what it says instead of
+    // leaving a block that describes an older failure.
+    void applySession();
+    return;
+  }
+  if (outcome.status === "ready") return;
+
+  pendingTeardown = unresolvedReminderTeardown();
+  emit({ teardownPending: true, error: teardownFailure() });
+}
+
 /**
  * Reads the persisted session and publishes a definitive status. Any failure
  * lands in `error` rather than staying in `loading`: an unreadable session is
@@ -184,36 +581,40 @@ const getSnapshot = () => state;
  * response from an older read can never overwrite a newer retry or an auth
  * event that arrived while the read was in flight.
  */
-const sessionAttempts = createSessionAttempts();
-
 async function applySession(): Promise<void> {
   const attempt = sessionAttempts.begin();
+
+  // Fail closed before reading the session: without a cross-tab transport an
+  // account store may not be opened (ADR 0002 D5/B2.2). Beginning the attempt
+  // first invalidates any read already in flight, so an older read cannot
+  // publish over this block.
+  if (transportUnavailable()) {
+    emit({ user: null, status: "error", error: unsupportedTransportError() });
+    return;
+  }
+  if (state.error?.code === "unsupported-browser") emit({ error: null });
+
   const supabase = getSupabase();
   if (!supabase) {
-    if (sessionAttempts.current(attempt)) {
-      emit({ user: null, status: "error" });
-    }
+    await failClosedOnUnresolvedSession(attempt);
     return;
   }
 
+  let session: Session | null;
   try {
     const { data, error } = await withTimeout(supabase.auth.getSession());
     if (error) throw error;
-    if (!sessionAttempts.current(attempt)) return;
-
-    if (data.session) {
-      writePendingConfirmation(false);
-      emit({
-        user: data.session.user,
-        status: "signed-in",
-        needsEmailConfirmation: false,
-      });
-    } else {
-      emit({ user: null, status: "signed-out" });
-    }
+    session = data.session;
   } catch {
-    if (!sessionAttempts.current(attempt)) return;
-    emit({ user: null, status: "error" });
+    await failClosedOnUnresolvedSession(attempt);
+    return;
+  }
+
+  if (!sessionAttempts.current(attempt)) return;
+  if (session) {
+    await adoptSession(session);
+  } else {
+    await endSession();
   }
 }
 
@@ -224,7 +625,10 @@ function start() {
   if (!isCloudEnabled()) return;
   const supabase = getSupabase();
   if (!supabase) {
-    emit({ user: null, status: "error" });
+    // The app cannot establish a session, so it blocks and cancels whatever
+    // this device still holds. applySession owns that whole path, including the
+    // error surface's retry.
+    void applySession();
     return;
   }
 
@@ -237,15 +641,13 @@ function start() {
     // so the read's answer must not land on top of it.
     sessionAttempts.invalidate();
 
+    // Every session, including one another tab announced, goes through the
+    // queue. A session for a different account therefore cannot be published
+    // until the previous account's teardown has succeeded.
     if (session) {
-      writePendingConfirmation(false);
-      emit({
-        user: session.user,
-        status: "signed-in",
-        needsEmailConfirmation: false,
-      });
+      void adoptSession(session);
     } else {
-      emit({ user: null, status: "signed-out" });
+      void endSession();
     }
 
     // A recovery link establishes a real session, so `status` alone reads as an
@@ -263,6 +665,15 @@ function start() {
 
 async function retrySession(): Promise<void> {
   emit({ status: "loading", user: null });
+
+  // A cold start whose session could not be read may also be holding a failed
+  // reminder cancellation. Retry that first: a recovered session must not be
+  // published until the device has proven the previous reminders are gone.
+  if (!(await settlePendingTeardown())) {
+    emit({ status: "error" });
+    return;
+  }
+
   await applySession();
 }
 
@@ -280,6 +691,7 @@ export function useAuth(): UseAuth {
 
   const signIn = useCallback(async (email: string, password: string) => {
     emit({ error: null });
+    if (!(await settlePendingTeardown())) return false;
     const supabase = getSupabase();
     if (!supabase) return false;
 
@@ -299,6 +711,7 @@ export function useAuth(): UseAuth {
   const signUp = useCallback(
     async (email: string, password: string): Promise<SignUpOutcome> => {
       emit({ error: null, needsEmailConfirmation: false });
+      if (!(await settlePendingTeardown())) return { ok: false };
       const supabase = getSupabase();
       if (!supabase) return { ok: false };
 
@@ -360,7 +773,7 @@ export function useAuth(): UseAuth {
     emit({ passwordResetReady: false, error: null });
   }, []);
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (onSignedOut?: TeardownCallback) => {
     // A session read that was already in flight is older than this sign-out
     // attempt and must not restore the session after it completes.
     sessionAttempts.invalidate();
@@ -368,27 +781,60 @@ export function useAuth(): UseAuth {
     const supabase = getSupabase();
     const result = await performSignOut(supabase);
     if (!result.ok) {
-      // The session is still the one in hand, so the flags stay as they are and
-      // the user sees why signing out did not happen.
+      // Re-sync with Supabase's actual session state: the local session may
+      // have been cleared even when the remote sign-out failed, so we must not
+      // claim the user is still signed in when Supabase disagrees.
+      await retrySession();
       emit({
         error: { code: "sign-out-failed", message: result.message },
       });
       return;
     }
+
     writePendingConfirmation(false);
-    // Supabase normally emits SIGNED_OUT as well, but publishing the result
-    // here means a successful sign-out is reflected immediately even if that
-    // event is delayed.
+    // Record the teardown before publishing the signed-out status. An already
+    // pending teardown wins: it belongs to an account whose resources are still
+    // held, and replacing it with this call's callback would lose that work.
+    // The app root's registered teardown is the fallback when a caller passes
+    // none, so an expiry arriving later still has one to run.
+    if (!pendingTeardown) {
+      pendingTeardown = onSignedOut ?? registeredSessionTeardown ?? null;
+    }
+    // The remote session is gone, so publish that before local teardown: no
+    // surface may keep showing the old account while its store is closed.
+    // `teardownPending` is deliberately left alone: an earlier failure stays
+    // blocking until settlement actually succeeds.
+    activeUserId = null;
     emit({
       user: null,
       status: "signed-out",
       needsEmailConfirmation: false,
       passwordResetReady: false,
     });
+
+    if (pendingTeardown) await settlePendingTeardown();
+  }, []);
+
+  const retryTransition = useCallback(async () => {
+    // Run the failed teardown first; nothing may activate until it succeeds.
+    if (!(await settlePendingTeardown())) return;
+
+    // A session that arrived while teardown was failing is still waiting. It
+    // was accepted by Supabase already, so publishing it needs no new read and
+    // cannot be used to skip the teardown that just completed.
+    if (queuedSession) {
+      await adoptSession(queuedSession);
+      return;
+    }
+
+    // Otherwise reconcile with Supabase so the surface reflects the real
+    // session after recovery.
+    await retrySession();
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
     emit({ error: null });
+    if (!(await settlePendingTeardown())) return false;
     const supabase = getSupabase();
     if (!supabase) return false;
 
@@ -407,6 +853,7 @@ export function useAuth(): UseAuth {
 
   const signInWithApple = useCallback(async () => {
     emit({ error: null });
+    if (!(await settlePendingTeardown())) return false;
     const supabase = getSupabase();
     if (!supabase) return false;
 
@@ -438,6 +885,8 @@ export function useAuth(): UseAuth {
     updatePassword,
     cancelPasswordReset,
     signOut,
+    teardownPending: session.teardownPending,
+    retryTransition,
     clearError,
     retrySession,
     signInWithGoogle,

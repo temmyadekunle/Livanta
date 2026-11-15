@@ -71,17 +71,34 @@ function databaseErrorMessage(error: unknown): string {
 }
 
 /**
- * The local-data hook. Without an argument it targets the anonymous `lifedesk`
- * database exactly as before. An explicit store is used for every read and
- * write and is never replaced by the anonymous database.
+ * The local-data hook. An explicit store is used for every read and write and
+ * is never replaced by the anonymous database. Passing an explicit `null`
+ * store selects idle behaviour: no database is opened, no default anonymous
+ * substitution occurs, and every operation is idle-safe.
  *
  * Operations capture the store they started with, so a scope change cannot
  * redirect an in-flight write. A generation token prevents any late completion
  * from publishing data for the previous store into the current UI.
+ *
+ * A render-time owner guard compares the store's scope with `expectedUserId`.
+ * A mismatch exposes no account records and produces a recoverable scope
+ * error instead of a silent fallback or a second account's data.
  */
-export function useLivanta(...args: [] | [store: LocalStore]) {
+export function useLivanta(
+  ...args: [] | [store: LocalStore | null, expectedUserId?: string | null]
+) {
+  const explicitStore = args.length > 0;
   const store = args.length === 0 ? anonymousStore : args[0];
-  const explicitStore = args.length === 1;
+  const expectedUserId = args.length >= 2 ? args[1] : null;
+
+  // Render-time owner guard: an explicit store whose scope does not match the
+  // expected user id must never expose account records.
+  const ownerMismatch =
+    explicitStore &&
+    store !== null &&
+    store.scope.kind === "user" &&
+    expectedUserId !== null &&
+    store.scope.userId !== expectedUserId;
 
   const [local, setLocal] = useState<LocalState>(() => ({
     scope: null,
@@ -93,6 +110,10 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
     error: null,
   }));
   const generationRef = useRef(0);
+  /** Set true when this hook's store has been closed/released. All mutation
+     paths reject while invalidated, so pending operations from a previous
+     account cannot write after an identity transition. */
+  const invalidatedRef = useRef(false);
 
   // State belongs to the store that loaded it. Rendering for a different store
   // immediately hides the old scope instead of waiting for the effect to reset.
@@ -100,9 +121,11 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
   const things = current ? local.things : NO_THINGS;
   const dismissedIds = current ? local.dismissedIds : NO_DISMISSED_IDS;
   const settings = current ? local.settings : DEFAULT_SETTINGS;
-  const ready = current && local.ready;
-  const loading = current ? local.loading : true;
-  const error = current ? local.error : null;
+  const ready = ownerMismatch ? false : (current && local.ready);
+  const loading = ownerMismatch ? false : (current ? local.loading : true);
+  const error = ownerMismatch
+    ? "The local database belongs to a different account. Sign in again to continue."
+    : current ? local.error : null;
 
   const loadAndApply = useCallback(
     async (target: LocalStore, generation: number) => {
@@ -151,7 +174,21 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
     [],
   );
 
+  // Null store: idle behaviour. No database is opened, no anonymous fallback,
+  // and the desk is ready immediately so the surface decision can progress.
   useEffect(() => {
+    if (store === null) {
+      setLocal({
+        scope: null,
+        settings: DEFAULT_SETTINGS,
+        things: NO_THINGS,
+        dismissedIds: NO_DISMISSED_IDS,
+        ready: true,
+        loading: false,
+        error: null,
+      });
+      return;
+    }
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     void hydrate(store, generation, true);
@@ -161,10 +198,12 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
   }, [store, hydrate]);
 
   const refresh = useCallback(async () => {
+    if (store === null || ownerMismatch || invalidatedRef.current) return;
     await hydrate(store, generationRef.current);
-  }, [store, hydrate]);
+  }, [store, hydrate, ownerMismatch]);
 
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {
+    if (store === null || ownerMismatch || invalidatedRef.current) return;
     const generation = generationRef.current;
     const next = { ...settings, ...patch };
     if (generationRef.current === generation) {
@@ -172,8 +211,9 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
         previous.scope === store ? { ...previous, settings: next } : previous,
       );
     }
+    if (invalidatedRef.current) return;
     await saveSettings(store, next);
-  }, [settings, store]);
+  }, [settings, store, ownerMismatch]);
 
   const completeOnboarding = useCallback(
     async (input: {
@@ -186,6 +226,7 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
       }[];
       locale?: Settings["locale"];
     }) => {
+      if (store === null || ownerMismatch || invalidatedRef.current) return;
       const generation = generationRef.current;
       const next: Settings = {
         ...settings,
@@ -198,10 +239,12 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
           previous.scope === store ? { ...previous, settings: next } : previous,
         );
       }
+      if (invalidatedRef.current) return;
       await saveSettings(store, next);
 
       const now = new Date().toISOString();
       for (const first of input.firstThings) {
+        if (invalidatedRef.current) return;
         const thing: Thing = {
           id: makeId(),
           name: first.name,
@@ -224,19 +267,25 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
         await store.putThing(thing);
       }
 
+      if (invalidatedRef.current) return;
       await loadAndApply(store, generation);
     },
-    [settings, store, loadAndApply],
+    [settings, store, loadAndApply, ownerMismatch],
   );
 
   const loadSampleData = useCallback(async () => {
+    if (store === null || ownerMismatch || invalidatedRef.current) return;
     const generation = generationRef.current;
+    if (invalidatedRef.current) return;
     await seedIfEmpty(store);
+    if (invalidatedRef.current) return;
     await loadAndApply(store, generation);
-  }, [store, loadAndApply]);
+  }, [store, loadAndApply, ownerMismatch]);
 
   const deleteEverything = useCallback(async () => {
+    if (store === null || ownerMismatch || invalidatedRef.current) return;
     const generation = generationRef.current;
+    if (invalidatedRef.current) return;
     await store.clear();
     const fresh = { ...DEFAULT_SETTINGS };
     if (generationRef.current === generation) {
@@ -244,6 +293,7 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
         previous.scope === store ? { ...previous, settings: fresh } : previous,
       );
     }
+    if (invalidatedRef.current) return;
     await saveSettings(store, fresh);
     if (generationRef.current === generation) {
       setLocal((previous) =>
@@ -252,7 +302,7 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
           : previous,
       );
     }
-  }, [store]);
+  }, [store, ownerMismatch]);
 
   const t = useMemo(() => makeT(settings.locale), [settings.locale]);
 
@@ -268,20 +318,23 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
 
   const queueDeletion = useCallback(
     (id: string) =>
-      explicitStore ? recordDeletion(store, id) : recordDeletion(id),
+      explicitStore && store !== null && !invalidatedRef.current
+        ? recordDeletion(store, id)
+        : undefined,
     [explicitStore, store],
   );
 
   const queueDismissal = useCallback(
     (id: string, dismissed: boolean) =>
-      explicitStore
+      explicitStore && store !== null && !invalidatedRef.current
         ? recordDismissal(store, id, dismissed)
-        : recordDismissal(id, dismissed),
+        : undefined,
     [explicitStore, store],
   );
 
   const addThing = useCallback(
     async (input: NewThingInput) => {
+      if (store === null || ownerMismatch || invalidatedRef.current) return;
       const generation = generationRef.current;
       const now = new Date().toISOString();
       const thing: Thing = {
@@ -303,11 +356,13 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
         updatedAt: now,
       };
       thing.priority = derivePriority(thing);
+      if (invalidatedRef.current) return;
       await store.putThing(thing);
+      if (invalidatedRef.current) return;
       await hydrate(store, generation);
       return thing;
     },
-    [store, hydrate],
+    [store, hydrate, ownerMismatch],
   );
 
   /**
@@ -316,6 +371,7 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
    */
   const completeThing = useCallback(
     async (thing: Thing) => {
+      if (store === null || ownerMismatch || invalidatedRef.current) return;
       const generation = generationRef.current;
       // Local calendar day: toISOString would report UTC's date, which is
       // yesterday just after midnight in Lagos (UTC+1).
@@ -330,38 +386,46 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
         updatedAt: new Date().toISOString(),
       };
       updated.priority = derivePriority(updated);
+      if (invalidatedRef.current) return;
       await store.putThing(updated);
+      if (invalidatedRef.current) return;
       await hydrate(store, generation);
     },
-    [store, hydrate],
+    [store, hydrate, ownerMismatch],
   );
 
   const dismissAlert = useCallback(async (alert: Alert) => {
+    if (store === null || ownerMismatch || invalidatedRef.current) return;
     setLocal((previous) => {
       if (previous.scope !== store) return previous;
       const next = new Set(previous.dismissedIds);
       next.add(alert.id);
       return { ...previous, dismissedIds: next };
     });
+    if (invalidatedRef.current) return;
     await store.putAlert({ ...alert, dismissed: true });
     await queueDismissal(alert.id, true);
-  }, [store, queueDismissal]);
+  }, [store, queueDismissal, ownerMismatch]);
 
   const restoreAlerts = useCallback(async () => {
+    if (store === null || ownerMismatch || invalidatedRef.current) return;
     setLocal((previous) =>
       previous.scope === store
         ? { ...previous, dismissedIds: NO_DISMISSED_IDS }
         : previous,
     );
+    if (invalidatedRef.current) return;
     const stored = await store.getAllAlerts();
     for (const a of stored) {
+      if (invalidatedRef.current) return;
       await store.putAlert({ ...a, dismissed: false });
       await queueDismissal(a.id, false);
     }
-  }, [store, queueDismissal]);
+  }, [store, queueDismissal, ownerMismatch]);
 
   const updateThing = useCallback(
     async (thing: Thing, patch: Partial<Thing>) => {
+      if (store === null || ownerMismatch || invalidatedRef.current) return;
       const generation = generationRef.current;
       const updated: Thing = {
         ...thing,
@@ -369,21 +433,26 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
         updatedAt: new Date().toISOString(),
       };
       updated.priority = derivePriority(updated);
+      if (invalidatedRef.current) return;
       await store.putThing(updated);
+      if (invalidatedRef.current) return;
       await hydrate(store, generation);
       return updated;
     },
-    [store, hydrate],
+    [store, hydrate, ownerMismatch],
   );
 
   const removeThing = useCallback(
     async (id: string) => {
+      if (store === null || ownerMismatch || invalidatedRef.current) return;
       const generation = generationRef.current;
+      if (invalidatedRef.current) return;
       await store.deleteThing(id);
       await queueDeletion(id);
+      if (invalidatedRef.current) return;
       await hydrate(store, generation);
     },
-    [store, queueDeletion, hydrate],
+    [store, queueDeletion, hydrate, ownerMismatch],
   );
 
   /**
@@ -394,16 +463,20 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
    */
   const importThings = useCallback(
     async (plan: ImportPlan, includeSettings: boolean) => {
+      if (store === null || ownerMismatch || invalidatedRef.current) return;
       const generation = generationRef.current;
       for (const thing of [...plan.add, ...plan.replace]) {
+        if (invalidatedRef.current) return;
         await store.putThing(thing);
       }
       if (includeSettings && plan.settings) {
+        if (invalidatedRef.current) return;
         await updateSettings(plan.settings);
       }
+      if (invalidatedRef.current) return;
       await hydrate(store, generation);
     },
-    [store, hydrate, updateSettings],
+    [store, hydrate, updateSettings, ownerMismatch],
   );
 
   const byCategory = useCallback(
@@ -426,6 +499,23 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
       ),
     };
   }, [things]);
+
+  /* Stops this hook from starting any further write. It does not close the
+     store: teardown owns the order (cancel reminders, then close), and closing
+     here first would turn a failed cancellation into a half-torn-down account. */
+  const invalidate = useCallback(() => {
+    invalidatedRef.current = true;
+  }, []);
+
+  // Reset invalidation when a genuinely new (non-null) store is provided, so
+  // a newly signed-in account starts with a clean hook. Stays true while the
+  // store is null (signed-out), so stale operations from a previous account
+  // remain rejected.
+  useEffect(() => {
+    if (store !== null) {
+      invalidatedRef.current = false;
+    }
+  }, [store]);
 
   return {
     loading,
@@ -451,5 +541,6 @@ export function useLivanta(...args: [] | [store: LocalStore]) {
     importThings,
     byCategory,
     formatNaira,
+    invalidate,
   };
 }

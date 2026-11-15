@@ -45,11 +45,13 @@ export function ProfileScreen({
   sync,
   onOpenAuth,
   onOpenConfirmDeleteAll,
+  onSignOut,
   showToast,
 }: {
   desk: Desk;
   auth: ReturnType<typeof useAuth>;
   sync: ReturnType<typeof useCloudSync>;
+  onSignOut?: () => Promise<void>;
   onOpenAuth: () => void;
   onOpenConfirmDeleteAll: () => void;
   showToast: (text: string, tone?: "ok" | "info" | "danger") => void;
@@ -211,14 +213,14 @@ export function ProfileScreen({
           {auth.status === "signed-in" ? (
             <p className="card-meta" style={{ margin: "0.5rem 0 0" }}>
               {syncLabel(t, sync)}
-              {sync.lastResult && sync.lastResult.at
+              {!sync.suspended && sync.lastResult && sync.lastResult.at
                 ? ` · ${t("sync.lastSynced", { time: formatTime(sync.lastResult.at) })}`
                 : ""}
             </p>
           ) : null}
         </section>
       ) : (
-        <AccountPanel t={t} auth={auth} sync={sync} />
+        <AccountPanel t={t} auth={auth} sync={sync} onSignOut={onSignOut} />
       )}
 
       <section className="section">
@@ -370,17 +372,22 @@ export function ProfileScreen({
           <h2 className="section__title">{t("profile.data")}</h2>
         </div>
         <div className="list">
-          <label className="setrow">
-            <span className="setrow__body">
-              <span className="setrow__title">{t("profile.dataSaver")}</span>
-              <span className="setrow__sub">{t("profile.dataSaverHint")}</span>
-            </span>
-            <input
-              type="checkbox"
-              checked={desk.settings.dataSaver}
-              onChange={(e) => void desk.updateSettings({ dataSaver: e.target.checked })}
-            />
-          </label>
+          {/* Data Saver only governs background sync. While sync is suspended
+              the switch would change a setting with no effect, so it stays out
+              of the list instead of promising behaviour that cannot happen. */}
+          {!sync.suspended ? (
+            <label className="setrow">
+              <span className="setrow__body">
+                <span className="setrow__title">{t("profile.dataSaver")}</span>
+                <span className="setrow__sub">{t("profile.dataSaverHint")}</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={desk.settings.dataSaver}
+                onChange={(e) => void desk.updateSettings({ dataSaver: e.target.checked })}
+              />
+            </label>
+          ) : null}
           <button
             className="setrow"
             onClick={() => {

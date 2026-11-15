@@ -1,5 +1,5 @@
-import LivantaApp from "@/components/LivantaApp";
+import AppEntry from "@/components/AppEntry";
 
 export default function Page() {
-  return <LivantaApp />;
+  return <AppEntry />;
 }

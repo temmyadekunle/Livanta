@@ -29,7 +29,9 @@ export type AppSurface =
   | { readonly kind: "auth-error" }
   | { readonly kind: "auth-gate" }
   | { readonly kind: "recovery" }
+  | { readonly kind: "identity-recovery" }
   | { readonly kind: "onboarding" }
+  | { readonly kind: "setup" }
   | { readonly kind: "app" };
 
 export interface AppSurfaceInput {
@@ -41,9 +43,29 @@ export interface AppSurfaceInput {
   authStatus: AuthStatus;
   /** True once a recovery link has established the reset session. */
   passwordResetReady: boolean;
+  /**
+   * Signed in, but the identity cannot be trusted (for example a malformed
+   * user id). An empty desk would silently disable every write, so this is an
+   * error surface instead.
+   */
+  identityInvalid?: boolean;
+  /**
+   * The remote session has ended but local teardown (reminders, store) has not
+   * succeeded yet. Nothing may activate another account until it does.
+   */
+  teardownPending?: boolean;
+  /**
+   * Another tab signed this account out or switched it. The account's data must
+   * disappear immediately, without waiting for this tab's own auth event.
+   */
+  identityRevoked?: boolean;
 }
 
 export function resolveAppSurface(input: AppSurfaceInput): AppSurface {
+  // A revocation from another tab wins over everything: the account's data is
+  // no longer trusted in this tab, even if the local session still looks valid.
+  if (input.identityRevoked) return { kind: "auth-loading" };
+
   if (input.authEnabled) {
     switch (input.authStatus) {
       case "loading":
@@ -57,10 +79,13 @@ export function resolveAppSurface(input: AppSurfaceInput): AppSurface {
         // Never fall through to the app on an inconsistent state.
         return { kind: "auth-error" };
       case "signed-out":
+        // Teardown must finish before the gate can activate another account.
+        if (input.teardownPending) return { kind: "identity-recovery" };
         return input.passwordResetReady
           ? { kind: "recovery" }
           : { kind: "auth-gate" };
       case "signed-in":
+        if (input.identityInvalid) return { kind: "auth-error" };
         break;
       default:
         return { kind: "auth-error" };
@@ -72,7 +97,12 @@ export function resolveAppSurface(input: AppSurfaceInput): AppSurface {
   }
 
   if (!input.ready) return { kind: "booting" };
-  if (!input.onboarded) return { kind: "onboarding" };
+  if (!input.onboarded) {
+    // With cloud auth enabled, a signed-in user who has not finished onboarding
+    // enters account setup. Without cloud auth, the offline onboarding flow
+    // owns this state instead.
+    return input.authEnabled ? { kind: "setup" } : { kind: "onboarding" };
+  }
   return { kind: "app" };
 }
 
@@ -86,6 +116,7 @@ export function isAuthSurface(surface: AppSurface): boolean {
     surface.kind === "auth-loading" ||
     surface.kind === "auth-error" ||
     surface.kind === "auth-gate" ||
-    surface.kind === "recovery"
+    surface.kind === "recovery" ||
+    surface.kind === "identity-recovery"
   );
 }

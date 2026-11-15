@@ -2334,6 +2334,168 @@ button.listrow:active {
 }
 
 /* ==========================================================================
+   First-time introduction
+   --------------------------------------------------------------------------
+   Presentation-only screens shown before the authentication welcome. The
+   layout is a phone column on small screens and a centred card on wide ones,
+   matching the app shell rather than inventing a second visual language.
+   ========================================================================== */
+
+.intro {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+}
+
+.intro__col {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 30rem;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: calc(env(safe-area-inset-top, 0px) + 1.125rem) 1.25rem
+    calc(env(safe-area-inset-bottom, 0px) + 1.25rem);
+}
+
+.intro__brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.intro__brand .logo--wordmark {
+  width: 84px;
+}
+
+.intro__live {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.intro__stage {
+  animation: intro-in 0.3s ease both;
+}
+
+.intro__stage .ob-art {
+  margin-bottom: 1.375rem;
+}
+
+.intro__art {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.intro__art-main {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 6px 22px rgba(4, 36, 84, 0.18);
+}
+
+.intro__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.intro__chip {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+}
+
+.intro__title {
+  margin: 0 0 0.5rem;
+  text-align: center;
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+}
+
+.intro__body {
+  margin-inline: auto;
+  max-width: 30ch;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-500);
+}
+
+.intro__dots {
+  margin: 1.25rem 0 1rem;
+}
+
+.intro__actions {
+  margin-top: auto;
+}
+
+.intro__actions .btn + .btn {
+  margin-top: 0.5rem;
+}
+
+@keyframes intro-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (min-width: 48rem) {
+  .intro {
+    padding: 2rem;
+    background: #e8edf6;
+  }
+
+  .intro__col {
+    min-height: min(46rem, calc(100dvh - 4rem));
+    padding: 2.25rem 2.25rem 2rem;
+    background: var(--bg);
+    border-radius: 1.75rem;
+    box-shadow: 0 24px 70px rgba(6, 24, 47, 0.14);
+  }
+}
+
+/* Short phones: shrink the decorative panel rather than push the action
+   below the fold. */
+@media (max-height: 740px) {
+  .intro .ob-art {
+    height: 148px;
+  }
+
+  .intro__stage .ob-art {
+    margin-bottom: 1rem;
+  }
+
+  .intro__title {
+    font-size: 1.5rem;
+  }
+}
+
+/* ==========================================================================
    Print
    ========================================================================== */
 
