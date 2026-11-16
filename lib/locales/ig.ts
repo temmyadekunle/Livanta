@@ -19,6 +19,7 @@ export const ig: Dict = {
   "app.error.title": "Enweghị ike ịbọpụta nchekwa data",
   "app.retry": "Gbasooọzọ",
   "app.back": "Laghachi azụ",
+  "app.dismiss": "Mechie",
 
   "tab.home": "Ntinye",
   "tab.life": "Ndụ",
@@ -339,6 +340,8 @@ export const ig: Dict = {
   "auth.invalid": "Ozi-e na okwuntughe nzinye ahụ dịghị adịghị ọdị.",
   "auth.emailTaken": "Akaụnt dị maka ozi-e a.",
   "auth.rateLimited": "Mgbalị dị ọtụtụ. Were nwaa asị, mgbe ahụ banye ọzọ.",
+  "auth.emailUnconfirmed": "Kwenye ozi-e gị tupu ịbanye.",
+  "auth.networkError": "Enweghị ike iru sava. Lelee njikọ gị wee nwaa ọzọ.",
   "auth.unknown": "Ihe dị ada. Banye ọzọ.",
   "app.brand": "Livanta",
   "ui.clear": "Kọcha",
@@ -478,7 +481,10 @@ export const ig: Dict = {
   "auth.signInWithApple": "Raa nke ọzọ na Apple",
   "auth.checkEmail": "Lelee ozi-e gị",
   "auth.checkEmailTitle": "Lelee ozi-e gị",
-  "auth.checkEmailBody": "Ọ bụrụ na adreesị ahụ dị ọhụrụ, njikọ nkwenye dị na ụzọ.",
+  "auth.checkEmailBody": "Lelee ozi-e gị maka njikọ nkwenye. Ọ bụrụ na ọ bịabeghị, zipụ ya ọzọ n'okpuru.",
+  "auth.resendConfirmation": "Zipụ ozi-e nkwenye ọzọ",
+  "auth.resendSent": "Ọ bụrụ na adreesị ahụ ka chọrọ nkwenye, njikọ ọhụrụ na-abịa.",
+  "auth.useDifferentEmail": "Jiri ozi-e ọzọ",
   "auth.resetSent": "Ezigara njikọ tọghata",
   "auth.resetSentBody": "Soro njikọ dị na ozi-e ka ị tọghata okwuntughe ọhụrụ.",
   "auth.signedInToast": "Ị banyela.",
@@ -486,6 +492,13 @@ export const ig: Dict = {
   "auth.passwordUpdated": "Emelitere okwuntughe. Ị banyela.",
   "auth.recoveryEndedTitle": "Njikọ tọghata okwuntughe agwụla",
   "auth.recoveryEndedBody": "Banye ọzọ, ma ọ bụ rịọ njikọ ọhụrụ.",
+  "auth.confirmLinkTitle": "Njikọ nkwenye ahụ arụghị ọrụ",
+  "auth.confirmLinkExpiredBody":
+    "Njikọ a emeela agadi ma ọ bụ e jirila ya. Banye, ma ọ bụ rịọ njikọ ọhụrụ site na ibe nbanye.",
+  "auth.confirmLinkInvalidBody":
+    "Njikọ a abụghị nke ziri ezi ma ọ bụ o meela agadi. Banye, ma ọ bụ rịọ njikọ ọhụrụ site na ibe nbanye.",
+  "auth.confirmLinkStillSignedIn":
+    "Ị ka banyere dịka {email}. Emeghị nkwenye akaụntụ ọhụrụ ahụ na ngwaọrụ a.",
   "auth.signOutFailed": "Enweghị ike ịpụ. Lelee njikọ gị wee nwaa ọzọ.",
   "auth.teardownTitle": "Apụla, mana ngwaọrụ a chọrọ otu nzọụkwụ ọzọ",
   "auth.teardownBody": "Enweghị ike ihicha ihe ncheta ma ọ bụ ndekọ mpaghara nke akaụntụ gara aga. Ọ dịghị ihe ọzọ ga-emeghe ruo mgbe nke ahụ mechara.",

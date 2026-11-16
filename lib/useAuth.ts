@@ -24,6 +24,8 @@ import { getSupabase, isCloudEnabled } from "./supabase/client.ts";
 import { createSessionAttempts, withTimeout } from "./sessionTimeout.ts";
 import { performSignOut } from "./signOut.ts";
 import { readSessionOwner } from "./sessionAuthority.ts";
+import { authRedirectUrl } from "./authRedirect.ts";
+import { parseAuthLinkError, type AuthLinkError } from "./authLinkError.ts";
 import { identityTransportKind } from "./identityTransport.ts";
 import {
   ensureReminderOwner,
@@ -47,13 +49,20 @@ export interface AuthError {
   code:
     | "invalid-credentials"
     | "email-taken"
+    | "email-unconfirmed"
     | "rate-limited"
+    | "network"
     | "sign-out-failed"
     | "teardown-failed"
     | "unsupported-browser"
     | "unknown";
   message: string;
 }
+
+/** A resend either reached Supabase or explains why it did not. */
+export type ResendOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: AuthError };
 
 /**
  * Sign-up reports the confirmation requirement as part of its result rather
@@ -81,6 +90,11 @@ export interface UseAuth {
   /** True right after signing up on a project that requires email confirmation. */
   needsEmailConfirmation: boolean;
   /**
+   * The failure carried by the URL of a confirmation or recovery link, read
+   * once at startup. Null when there was no failed link.
+   */
+  confirmationError: AuthLinkError | null;
+  /**
    * True when the session in hand came from an emailed recovery link, so the
    * only sensible next step is choosing a new password. See the PASSWORD_RECOVERY
    * branch in the subscription below for why this is not just `signed-in`.
@@ -88,6 +102,21 @@ export interface UseAuth {
   passwordResetReady: boolean;
   signIn: (email: string, password: string) => Promise<boolean>;
   signUp: (email: string, password: string) => Promise<SignUpOutcome>;
+  /**
+   * Sends another confirmation email. Reports the answer rather than assuming
+   * it: the UI may only claim an email was sent when `ok` is true.
+   */
+  resendConfirmation: (email: string) => Promise<ResendOutcome>;
+  /**
+   * The address awaiting confirmation on this device, when one is known.
+   * Stored only so the prompt can resend without retyping it; no token.
+   */
+  pendingEmail: string | null;
+  /**
+   * Forgets the local pending-confirmation prompt. This is presentation state
+   * only: no account is deleted or changed by it.
+   */
+  clearPendingConfirmation: () => void;
   /** Sends a password-reset email. */
   resetPassword: (email: string) => Promise<boolean>;
   /** Completes a reset once the user has followed the emailed link. */
@@ -107,6 +136,8 @@ export interface UseAuth {
   /** Re-runs the failed local teardown of the account that just signed out. */
   retryTransition: () => Promise<void>;
   clearError: () => void;
+  /** Hides the failed-link notice after the user has seen it. */
+  clearConfirmationError: () => void;
   /** Re-reads the persisted session after an initialization failure. */
   retrySession: () => Promise<void>;
   /** Sign in with Google OAuth. */
@@ -128,8 +159,15 @@ function toAuthError(error: { message: string } | null): AuthError {
   if (/already registered|already exists/i.test(message)) {
     return { code: "email-taken", message };
   }
-  if (/rate limit|too many/i.test(message)) {
+  if (/email not confirmed|email_not_confirmed/i.test(message)) {
+    return { code: "email-unconfirmed", message };
+  }
+  // GoTrue's per-address cooldown has neither "rate limit" nor "too many" in it.
+  if (/rate limit|too many|for security purposes|only request this after/i.test(message)) {
     return { code: "rate-limited", message };
+  }
+  if (/failed to fetch|network|load failed|fetch failed/i.test(message)) {
+    return { code: "network", message };
   }
   return { code: "unknown", message };
 }
@@ -137,9 +175,11 @@ function toAuthError(error: { message: string } | null): AuthError {
 /**
  * The "confirm your email" prompt has to outlive a re-render and a reload,
  * otherwise the only signal is a toast that disappears before the user can
- * find the message. Only a boolean is stored: no address or token.
+ * find the message. The address is kept beside the flag so a resend does not
+ * need it retyped; no token is ever stored.
  */
 const PENDING_CONFIRMATION_KEY = "livanta.auth.pendingConfirmation.v1";
+const PENDING_EMAIL_KEY = "livanta.auth.pendingEmail.v1";
 
 function readPendingConfirmation(): boolean {
   try {
@@ -152,11 +192,28 @@ function readPendingConfirmation(): boolean {
   }
 }
 
-function writePendingConfirmation(pending: boolean): void {
+function readPendingEmail(): string | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const email = window.localStorage.getItem(PENDING_EMAIL_KEY)?.trim();
+    return email ? email : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePendingConfirmation(pending: boolean, email?: string): void {
   try {
     if (typeof window === "undefined") return;
-    if (pending) window.localStorage.setItem(PENDING_CONFIRMATION_KEY, "1");
-    else window.localStorage.removeItem(PENDING_CONFIRMATION_KEY);
+    if (pending) {
+      window.localStorage.setItem(PENDING_CONFIRMATION_KEY, "1");
+      if (email !== undefined) {
+        window.localStorage.setItem(PENDING_EMAIL_KEY, email.trim());
+      }
+    } else {
+      window.localStorage.removeItem(PENDING_CONFIRMATION_KEY);
+      window.localStorage.removeItem(PENDING_EMAIL_KEY);
+    }
   } catch {
     /* private browsing */
   }
@@ -167,6 +224,8 @@ interface AuthState {
   user: User | null;
   error: AuthError | null;
   needsEmailConfirmation: boolean;
+  pendingEmail: string | null;
+  confirmationError: AuthLinkError | null;
   passwordResetReady: boolean;
   teardownPending: boolean;
 }
@@ -178,6 +237,8 @@ function initialState(): AuthState {
     user: null,
     error: null,
     needsEmailConfirmation: isCloudEnabled() && readPendingConfirmation(),
+    pendingEmail: isCloudEnabled() ? readPendingEmail() : null,
+    confirmationError: null,
     passwordResetReady: false,
     teardownPending: false,
   };
@@ -391,6 +452,7 @@ function publishSignedIn(session: Session): void {
     user: session.user,
     status: "signed-in",
     needsEmailConfirmation: false,
+    pendingEmail: null,
   });
 }
 
@@ -618,11 +680,36 @@ async function applySession(): Promise<void> {
   }
 }
 
+/**
+ * Reads a failed confirmation or recovery redirect before supabase-js touches
+ * the URL. Only an error fragment is cleared; a fragment carrying tokens is
+ * never touched, so the client's own URL exchange still sees it.
+ */
+function readAndClearAuthLinkError(): AuthLinkError | null {
+  if (typeof window === "undefined") return null;
+
+  const error = parseAuthLinkError(window.location.hash);
+  if (!error) return null;
+
+  const url = new URL(window.location.href);
+  url.hash = "";
+  try {
+    window.history.replaceState(window.history.state, "", url.toString());
+  } catch {
+    /* The notice is still shown; only the address bar keeps the fragment. */
+  }
+  return error;
+}
+
 function start() {
   if (started) return;
   started = true;
 
   if (!isCloudEnabled()) return;
+
+  const linkError = readAndClearAuthLinkError();
+  if (linkError) emit({ confirmationError: linkError });
+
   const supabase = getSupabase();
   if (!supabase) {
     // The app cannot establish a session, so it blocks and cancels whatever
@@ -656,7 +743,11 @@ function start() {
     // reset flow, and nothing else disarms it: TOKEN_REFRESHED fires straight
     // afterwards and must not clear the flag out from under the form.
     if (event === "PASSWORD_RECOVERY") {
-      emit({ passwordResetReady: true, needsEmailConfirmation: false });
+      emit({
+        passwordResetReady: true,
+        needsEmailConfirmation: false,
+        pendingEmail: null,
+      });
     }
   });
 
@@ -690,7 +781,7 @@ export function useAuth(): UseAuth {
   const session = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    emit({ error: null });
+    emit({ error: null, confirmationError: null });
     if (!(await settlePendingTeardown())) return false;
     const supabase = getSupabase();
     if (!supabase) return false;
@@ -700,17 +791,31 @@ export function useAuth(): UseAuth {
       password,
     });
     if (signInError) {
-      emit({ error: toAuthError(signInError) });
+      const mapped = toAuthError(signInError);
+      if (mapped.code === "email-unconfirmed") {
+        // The address exists but is unconfirmed. That is the pending screen's
+        // job, not a generic failure: nothing was sent by this attempt, so the
+        // prompt offers a resend rather than claiming one.
+        const pending = email.trim();
+        writePendingConfirmation(true, pending);
+        emit({
+          error: null,
+          needsEmailConfirmation: true,
+          pendingEmail: pending,
+        });
+        return false;
+      }
+      emit({ error: mapped });
       return false;
     }
     writePendingConfirmation(false);
-    emit({ needsEmailConfirmation: false });
+    emit({ needsEmailConfirmation: false, pendingEmail: null });
     return true;
   }, []);
 
   const signUp = useCallback(
     async (email: string, password: string): Promise<SignUpOutcome> => {
-      emit({ error: null, needsEmailConfirmation: false });
+      emit({ error: null, needsEmailConfirmation: false, confirmationError: null });
       if (!(await settlePendingTeardown())) return { ok: false };
       const supabase = getSupabase();
       if (!supabase) return { ok: false };
@@ -718,6 +823,15 @@ export function useAuth(): UseAuth {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        // Without this GoTrue uses the project-wide Site URL, which is wrong
+        // for every environment except the one it was last set to. The origin
+        // that is running the form is the only correct destination.
+        options: {
+          emailRedirectTo: authRedirectUrl(
+            window.location.origin,
+            window.location.pathname,
+          ),
+        },
       });
       if (signUpError) {
         emit({ error: toAuthError(signUpError) });
@@ -727,22 +841,63 @@ export function useAuth(): UseAuth {
       // no session yet. Say so, and keep saying so across reloads, otherwise the
       // only signal is a toast that disappears before the user can act on it.
       const needsEmailConfirmation = !data.session && Boolean(data.user);
-      writePendingConfirmation(needsEmailConfirmation);
-      emit({ needsEmailConfirmation });
+      const pendingEmail = needsEmailConfirmation ? email.trim() : null;
+      writePendingConfirmation(needsEmailConfirmation, pendingEmail ?? undefined);
+      emit({ needsEmailConfirmation, pendingEmail });
       return { ok: true, needsEmailConfirmation };
     },
     [],
   );
 
+  const resendConfirmation = useCallback(
+    async (email: string): Promise<ResendOutcome> => {
+      const address = email.trim();
+      const supabase = getSupabase();
+      if (!address || !supabase) {
+        return {
+          ok: false,
+          error: { code: "unknown", message: "confirmation email unavailable" },
+        };
+      }
+
+      const { error: resendError } = await supabase.auth.resend({
+        type: "signup",
+        email: address,
+        options: {
+          emailRedirectTo: authRedirectUrl(
+            window.location.origin,
+            window.location.pathname,
+          ),
+        },
+      });
+      // Success is Supabase accepting the request. Whether GoTrue actually
+      // mails an existing unconfirmed address is its own decision, and its
+      // answer is deliberately indistinguishable from a fresh sign-up.
+      if (resendError) return { ok: false, error: toAuthError(resendError) };
+      return { ok: true };
+    },
+    [],
+  );
+
+  const clearPendingConfirmation = useCallback(() => {
+    writePendingConfirmation(false);
+    emit({ needsEmailConfirmation: false, pendingEmail: null });
+  }, []);
+
   const resetPassword = useCallback(async (email: string) => {
-    emit({ error: null });
+    emit({ error: null, confirmationError: null });
     const supabase = getSupabase();
     if (!supabase) return false;
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
       email.trim(),
       // Supabase appends the token to this and redirects back into the app.
-      { redirectTo: `${window.location.origin}${window.location.pathname}` },
+      {
+        redirectTo: authRedirectUrl(
+          window.location.origin,
+          window.location.pathname,
+        ),
+      },
     );
     if (resetError) {
       emit({ error: toAuthError(resetError) });
@@ -809,6 +964,8 @@ export function useAuth(): UseAuth {
       user: null,
       status: "signed-out",
       needsEmailConfirmation: false,
+      pendingEmail: null,
+      confirmationError: null,
       passwordResetReady: false,
     });
 
@@ -833,7 +990,7 @@ export function useAuth(): UseAuth {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    emit({ error: null });
+    emit({ error: null, confirmationError: null });
     if (!(await settlePendingTeardown())) return false;
     const supabase = getSupabase();
     if (!supabase) return false;
@@ -841,7 +998,10 @@ export function useAuth(): UseAuth {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}${window.location.pathname}`,
+        redirectTo: authRedirectUrl(
+          window.location.origin,
+          window.location.pathname,
+        ),
       },
     });
     if (error) {
@@ -852,7 +1012,7 @@ export function useAuth(): UseAuth {
   }, []);
 
   const signInWithApple = useCallback(async () => {
-    emit({ error: null });
+    emit({ error: null, confirmationError: null });
     if (!(await settlePendingTeardown())) return false;
     const supabase = getSupabase();
     if (!supabase) return false;
@@ -860,7 +1020,10 @@ export function useAuth(): UseAuth {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "apple",
       options: {
-        redirectTo: `${window.location.origin}${window.location.pathname}`,
+        redirectTo: authRedirectUrl(
+          window.location.origin,
+          window.location.pathname,
+        ),
       },
     });
     if (error) {
@@ -871,6 +1034,10 @@ export function useAuth(): UseAuth {
   }, []);
 
   const clearError = useCallback(() => emit({ error: null }), []);
+  const clearConfirmationError = useCallback(
+    () => emit({ confirmationError: null }),
+    [],
+  );
 
   return {
     enabled,
@@ -878,9 +1045,13 @@ export function useAuth(): UseAuth {
     user: session.user,
     error: session.error,
     needsEmailConfirmation: session.needsEmailConfirmation,
+    pendingEmail: session.pendingEmail,
+    confirmationError: session.confirmationError,
     passwordResetReady: session.passwordResetReady,
     signIn,
     signUp,
+    resendConfirmation,
+    clearPendingConfirmation,
     resetPassword,
     updatePassword,
     cancelPasswordReset,
@@ -888,6 +1059,7 @@ export function useAuth(): UseAuth {
     teardownPending: session.teardownPending,
     retryTransition,
     clearError,
+    clearConfirmationError,
     retrySession,
     signInWithGoogle,
     signInWithApple,

@@ -20,6 +20,7 @@ export const yo: Dict = {
   "app.error.title": "Kò le ṣí àkójọ ẹ̀rọ̀",
   "app.retry": "Gbìyànjú lẹ́ẹ̀kan sí i",
   "app.back": "Padà",
+  "app.dismiss": "Pàárẹ̀",
 
   /* ---------- tabs ---------- */
   "tab.home": "Ilẹ̀",
@@ -350,6 +351,8 @@ export const yo: Dict = {
   "auth.invalid": "Ímeèlì àti ọ̀rọ̀ ìgbaniwọlé kò bá ìbá.",
   "auth.emailTaken": "Àkọọọ́lẹ̀ kan wà ní fún ímeèlì yìí tẹ́lẹ̀.",
   "auth.rateLimited": "Ìdánwò púpọ̀. Dúró ní ìṣẹ́jú kan kí o tún gbìyànjú.",
+  "auth.emailUnconfirmed": "Fẹ̀rí ímeèlì rẹ kí o tó wọlé.",
+  "auth.networkError": "Kò lè dé sáfà. Ṣàyẹ̀wò ìsopọ̀ rẹ kí o sì tún gbìyànjú.",
   "auth.unknown": "Kò bá ṣe. Gbìyànjú lẹ́ẹ̀kansí.",
 
   /* ---------- àfikún àwọn èdè (redesign) ---------- */
@@ -498,7 +501,10 @@ export const yo: Dict = {
   "auth.signInWithApple": "Tẹ̀síwájú pẹ̀lú Apple",
   "auth.checkEmail": "Wo ímeèlì rẹ",
   "auth.checkEmailTitle": "Wo ímeèlì rẹ",
-  "auth.checkEmailBody": "Bí àdírẹ́sì náà bá tuntun, ọ̀nà ìfẹ̀rí tẹ̀lé wà nínú.",
+  "auth.checkEmailBody": "Wo ímeèlì rẹ fún ọ̀nà ìfẹ̀rí. Bí kò bá dé, tún un ránṣẹ́ ní ìsàlẹ̀.",
+  "auth.resendConfirmation": "Tún ímeèlì ìfẹ̀rí ránṣẹ́",
+  "auth.resendSent": "Bí àdírẹ́sì yẹn ṣì nílò ìfẹ̀rí, ọ̀nà tuntun wà ní ọ̀nà.",
+  "auth.useDifferentEmail": "Lo ímeèlì mìíràn",
   "auth.resetSent": "A fi ọ̀nà ìtúnṣe ránṣẹ́",
   "auth.resetSentBody": "Tẹ̀lé ọ̀nà tí ó wà nínú ímeèlì láti yí ọ̀rọ̀ ìpamọ́ tuntun.",
   "auth.signedInToast": "O ti wọlé.",
@@ -506,6 +512,13 @@ export const yo: Dict = {
   "auth.passwordUpdated": "A ṣe àtúnṣe ọ̀rọ̀ ìpamọ́. O ti wọlé.",
   "auth.recoveryEndedTitle": "Ọ̀nà àtúnṣe ọ̀rọ̀ ìpamọ́ ti parí",
   "auth.recoveryEndedBody": "Wọlé lẹ́ẹ̀kan sí i, tàbí béèrè fún ọ̀nà tuntun.",
+  "auth.confirmLinkTitle": "Ọ̀nà ìfẹ̀rí yẹn kò ṣiṣẹ́",
+  "auth.confirmLinkExpiredBody":
+    "Ọ̀nà yìí ti parí tàbí a ti lò ó tẹ́lẹ̀. Wọlé, tàbí béèrè fún ọ̀nà tuntun láti ojú-ìwé ìwọlé.",
+  "auth.confirmLinkInvalidBody":
+    "Ọ̀nà yìí kò tọ́ tàbí ó ti parí. Wọlé, tàbí béèrè fún ọ̀nà tuntun láti ojú-ìwé ìwọlé.",
+  "auth.confirmLinkStillSignedIn":
+    "Ṣì wọlé gẹ́gẹ́ bí {email}. A kò tíì fẹ̀rí àkọsílẹ̀ tuntun náà lórí ẹ̀rọ yìí.",
   "auth.signOutFailed": "Kò lè jáde. Ṣàyẹ̀wò ìsopọ̀ rẹ kí o sì tún gbìyànjú.",
   "auth.teardownTitle": "O ti jáde, ṣùgbọ́n ẹ̀rọ yìí nílò ìgbésẹ̀ kan sí i",
   "auth.teardownBody": "A kò tíì pa àwọn ìránnilétí tàbí àkọsílẹ̀ ẹ̀rọ ti àkọọ́lẹ̀ tẹ́lẹ̀ rẹ́. Kò sí ohun mìíràn tó lè ṣí títí iṣẹ́ náà yóò fi parí.",

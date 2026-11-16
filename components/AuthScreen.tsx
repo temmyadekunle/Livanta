@@ -43,6 +43,11 @@ export function AuthScreen({
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendStatus, setResendStatus] = useState<{
+    tone: "ok" | "danger";
+    text: string;
+  } | null>(null);
 
   /* Arriving from an emailed recovery link means the only useful thing to show
      is the new-password form, whichever mode the user last left this screen in.
@@ -60,6 +65,88 @@ export function AuthScreen({
     mode === "new-password" &&
     auth.passwordResetReady &&
     auth.status !== "signed-in";
+
+  /* A failed confirmation link is the only evidence that the click did not
+     establish a session. Without it the gate looks like an ordinary signed-out
+     start, which is how an older session can be mistaken for the new account. */
+  const confirmationNotice = auth.confirmationError ? (
+    <Notice tone="danger">
+      <strong>{t("auth.confirmLinkTitle")}</strong>
+      <br />
+      {auth.confirmationError === "expired"
+        ? t("auth.confirmLinkExpiredBody")
+        : t("auth.confirmLinkInvalidBody")}
+    </Notice>
+  ) : null;
+
+  async function resendPendingConfirmation() {
+    const address = auth.pendingEmail;
+    if (!address || resending) return;
+    setResending(true);
+    setResendStatus(null);
+    const outcome = await auth.resendConfirmation(address);
+    setResending(false);
+    // Only a request Supabase accepted may be described as sent.
+    setResendStatus(
+      outcome.ok
+        ? { tone: "ok", text: t("auth.resendSent") }
+        : { tone: "danger", text: authErrorLabel(t, outcome.error.code) },
+    );
+  }
+
+  function chooseDifferentEmail() {
+    // Presentation only: the unconfirmed account in Supabase is left untouched.
+    auth.clearPendingConfirmation();
+    auth.clearError();
+    setResendStatus(null);
+    setSent(false);
+    setPassword("");
+    setEmail("");
+    setMode("sign-up");
+  }
+
+  /* The pending prompt survives a reload, so it must carry the two ways out
+     that do not require inventing a second account: ask for another email,
+     or stop waiting on this address. */
+  const pendingNotice =
+    auth.needsEmailConfirmation && !auth.confirmationError ? (
+      <Notice tone="info" icon="mail">
+        <strong>{t("auth.checkEmailTitle")}</strong>
+        <br />
+        {t("auth.checkEmailBody")}
+        {resendStatus ? (
+          <p
+            role="status"
+            style={{
+              marginTop: "0.5rem",
+              color:
+                resendStatus.tone === "danger" ? "var(--danger)" : "var(--ok)",
+            }}
+          >
+            {resendStatus.text}
+          </p>
+        ) : null}
+        <div className="stack stack--tight" style={{ marginTop: "0.625rem" }}>
+          {auth.pendingEmail ? (
+            <button
+              type="button"
+              className="btn btn--soft btn--sm"
+              onClick={() => void resendPendingConfirmation()}
+              disabled={resending}
+            >
+              {resending ? t("auth.working") : t("auth.resendConfirmation")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={chooseDifferentEmail}
+          >
+            {t("auth.useDifferentEmail")}
+          </button>
+        </div>
+      </Notice>
+    ) : null;
 
   if (!auth.enabled) {
     return (
@@ -96,7 +183,7 @@ export function AuthScreen({
           </div>
         </div>
         {auth.error ? (
-          <Notice tone="danger">{errorLabel(t, auth.error.code)}</Notice>
+          <Notice tone="danger">{authErrorLabel(t, auth.error.code)}</Notice>
         ) : null}
         <button
           className="btn btn--danger btn--block"
@@ -130,14 +217,11 @@ export function AuthScreen({
           </h2>
           <p className="card-meta">{t("auth.welcomeBlurb")}</p>
         </div>
-        {auth.needsEmailConfirmation ? (
-          <div style={{ marginTop: "1rem" }}>
-            <Notice tone="info" icon="mail">
-              <strong>{t("auth.checkEmailTitle")}</strong>
-              <br />
-              {t("auth.checkEmailBody")}
-            </Notice>
-          </div>
+        {confirmationNotice ? (
+          <div style={{ marginTop: "1rem" }}>{confirmationNotice}</div>
+        ) : null}
+        {pendingNotice ? (
+          <div style={{ marginTop: "1rem" }}>{pendingNotice}</div>
         ) : null}
         <div className="stack" style={{ marginTop: "1.5rem" }}>
           <button
@@ -250,15 +334,12 @@ export function AuthScreen({
         <p className="card-meta">{blurb}</p>
       </div>
 
-      {auth.needsEmailConfirmation &&
-      (mode === "sign-in" || mode === "sign-up") ? (
-        <div style={{ marginBottom: "0.875rem" }}>
-          <Notice tone="info" icon="mail">
-            <strong>{t("auth.checkEmailTitle")}</strong>
-            <br />
-            {t("auth.checkEmailBody")}
-          </Notice>
-        </div>
+      {confirmationNotice && (mode === "sign-in" || mode === "sign-up") ? (
+        <div style={{ marginBottom: "0.875rem" }}>{confirmationNotice}</div>
+      ) : null}
+
+      {pendingNotice && (mode === "sign-in" || mode === "sign-up") ? (
+        <div style={{ marginBottom: "0.875rem" }}>{pendingNotice}</div>
       ) : null}
 
       <form onSubmit={submit}>
@@ -319,7 +400,7 @@ export function AuthScreen({
 
         {auth.error ? (
           <div style={{ marginBottom: "0.875rem" }}>
-            <Notice tone="danger">{errorLabel(t, auth.error.code)}</Notice>
+            <Notice tone="danger">{authErrorLabel(t, auth.error.code)}</Notice>
           </div>
         ) : null}
 
@@ -471,10 +552,13 @@ export function AuthScreen({
   );
 }
 
-function errorLabel(t: Translate, code: string): string {
+/** Shared with the signed-in failed-link banner, which resends as well. */
+export function authErrorLabel(t: Translate, code: string): string {
   if (code === "invalid-credentials") return t("auth.invalid");
   if (code === "email-taken") return t("auth.emailTaken");
+  if (code === "email-unconfirmed") return t("auth.emailUnconfirmed");
   if (code === "rate-limited") return t("auth.rateLimited");
+  if (code === "network") return t("auth.networkError");
   if (code === "sign-out-failed") return t("auth.signOutFailed");
   return t("auth.unknown");
 }

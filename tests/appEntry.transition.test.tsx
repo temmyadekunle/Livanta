@@ -72,6 +72,8 @@ const {
   setReminderOwnerStorageForTesting,
 } = await import("../lib/reminders/ownerMarker.ts");
 const { setSessionTimeoutForTesting } = await import("../lib/sessionTimeout.ts");
+const { createLocalStore, userScope } = await import("../lib/db.ts");
+const { DEFAULT_SETTINGS, saveSettings } = await import("../lib/settings.ts");
 
 type Session = import("@supabase/supabase-js").Session;
 type Root = import("react-dom/client").Root;
@@ -119,9 +121,21 @@ interface FakeClient {
     signInWithPassword: () => Promise<{ data: unknown; error: null }>;
     signUp: () => Promise<{ data: { session: null; user: null }; error: null }>;
     resetPasswordForEmail: () => Promise<{ error: null }>;
+    resend: (credentials: {
+      type: "signup";
+      email: string;
+      options?: { emailRedirectTo?: string };
+    }) => Promise<{ error: { message: string } | null }>;
     updateUser: () => Promise<{ error: null }>;
     signInWithOAuth: () => Promise<{ error: null }>;
   };
+  /** Every confirmation resend the app asked for. */
+  readonly resends: Array<{
+    type: string;
+    email: string;
+    redirectTo?: string;
+  }>;
+  readonly signOuts: number;
   /** Replaces the persisted session, as another tab's sign-in would. */
   setSession: (session: Session | null) => void;
   /** Delivers the auth event Supabase would emit for that session. */
@@ -136,6 +150,8 @@ function fakeClient(initial: Session | null): FakeClient {
   let listener: ((event: AuthEvent, session: Session | null) => void) | null = null;
   let subscribed = false;
   let reads = 0;
+  const resends: Array<{ type: string; email: string; redirectTo?: string }> = [];
+  let signOuts = 0;
   const client: FakeClient = {
     auth: {
       getSession: async () => {
@@ -156,6 +172,7 @@ function fakeClient(initial: Session | null): FakeClient {
         };
       },
       signOut: async () => {
+        signOuts += 1;
         current = null;
         listener?.("SIGNED_OUT", null);
         return { error: null };
@@ -163,6 +180,10 @@ function fakeClient(initial: Session | null): FakeClient {
       signInWithPassword: async () => ({ data: {}, error: null }),
       signUp: async () => ({ data: { session: null, user: null }, error: null }),
       resetPasswordForEmail: async () => ({ error: null }),
+      resend: async ({ type, email, options }) => {
+        resends.push({ type, email, redirectTo: options?.emailRedirectTo });
+        return { error: null };
+      },
       updateUser: async () => ({ error: null }),
       signInWithOAuth: async () => ({ error: null }),
     },
@@ -178,6 +199,12 @@ function fakeClient(initial: Session | null): FakeClient {
     },
     get reads() {
       return reads;
+    },
+    get resends() {
+      return resends;
+    },
+    get signOuts() {
+      return signOuts;
     },
   };
   return client;
@@ -435,6 +462,16 @@ async function restart(): Promise<void> {
 async function seedActiveOwner(userId: string): Promise<void> {
   const hash = await reminderOwnerHash(userId);
   completeReminderTransition(beginReminderTransition(hash));
+}
+
+/**
+ * Marks the account's onboarding complete, so the surface under test is the
+ * app shell rather than the first-run introduction.
+ */
+async function seedOnboarded(userId: string): Promise<void> {
+  const store = createLocalStore(userScope(userId));
+  await saveSettings(store, { ...DEFAULT_SETTINGS, onboarded: true });
+  await store.close();
 }
 
 function markerRaw(): string {
@@ -1157,4 +1194,126 @@ test("a browser with no cross-tab transport never opens an account", async () =>
     "no signed-in surface is reachable",
   );
   assert.deepEqual(adapter.ops, [], "nothing is scheduled for an unopened account");
+});
+
+// ---------------------------------------------------------------------------
+// A failed confirmation link beside a still-signed-in account
+// ---------------------------------------------------------------------------
+
+test("a failed confirmation names the account still signed in, and follows a switch", async () => {
+  await seedOnboarded(A_ID);
+  await seedOnboarded(B_ID);
+  win.location.hash =
+    "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired";
+
+  client.setSession(sessionFor(A_ID, `${A_ID}@example.com`));
+  const app = await mountApp();
+  await waitUntil(
+    () => app.text().includes(en["ui.skipToContent"]),
+    "the app shell",
+    () => `text=${JSON.stringify(app.text())}`,
+  );
+
+  assert.equal(
+    app.text().includes(en["auth.confirmLinkTitle"]),
+    true,
+    "the failed link is visible over the signed-in app",
+  );
+  assert.equal(
+    app.text().includes(`still signed in as ${A_ID}@example.com`),
+    true,
+    "the notice names the account whose session survived the failure",
+  );
+  assert.equal(win.location.hash, "", "the failure is removed from the address bar");
+
+  act(() => {
+    client.emit("SIGNED_IN", sessionFor(B_ID, "b@example.com"));
+  });
+  await waitUntil(
+    () =>
+      getAccountTransitionCoordinator().currentUserId() === B_ID &&
+      app.text().includes(en["ui.skipToContent"]),
+    "the switched account to render",
+    () => `text=${JSON.stringify(app.text())}`,
+  );
+  await waitUntil(
+    () => app.text().includes("still signed in as b@example.com"),
+    "the notice to name the new account",
+    () => `text=${JSON.stringify(app.text())}`,
+  );
+  assert.equal(
+    app.text().includes(`${A_ID}@example.com`),
+    false,
+    "the outgoing account's address is gone",
+  );
+
+  const dismiss = [...app.container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === en["app.dismiss"],
+  );
+  assert.ok(dismiss, "the notice can be dismissed");
+  act(() => {
+    (dismiss as unknown as HTMLElement).click();
+  });
+  await waitUntil(
+    () => !app.text().includes(en["auth.confirmLinkTitle"]),
+    "the notice to disappear after dismissal",
+  );
+});
+
+test("the failed-link banner resends without signing the current account out", async () => {
+  await seedOnboarded(A_ID);
+  win.location.hash =
+    "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired";
+  client.setSession(sessionFor(A_ID, `${A_ID}@example.com`));
+
+  const app = await mountApp();
+  await waitUntil(
+    () => app.text().includes(en["auth.confirmLinkTitle"]),
+    "the failed-link banner",
+    () => `text=${JSON.stringify(app.text())}`,
+  );
+
+  const input = app.container.querySelector<HTMLInputElement>("#resend-email");
+  assert.ok(input, "the banner offers an address for the resend");
+  const setter = Object.getOwnPropertyDescriptor(
+    win.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  act(() => {
+    setter?.call(input, "waiting@example.com");
+    input.dispatchEvent(new win.Event("input", { bubbles: true }) as unknown as Event);
+  });
+
+  const form = input.closest("form");
+  assert.ok(form, "the resend has its own submit control");
+  await act(async () => {
+    form.dispatchEvent(
+      new win.Event("submit", { bubbles: true, cancelable: true }) as unknown as Event,
+    );
+    await delay(0);
+  });
+
+  await waitUntil(
+    () => app.text().includes(en["auth.resendSent"]),
+    "the accepted resend to be reported",
+    () => `text=${JSON.stringify(app.text())}`,
+  );
+  assert.deepEqual(
+    client.resends,
+    [
+      {
+        type: "signup",
+        email: "waiting@example.com",
+        redirectTo: "https://livanta.test/",
+      },
+    ],
+    "the resend asks Supabase for a signup confirmation and returns here",
+  );
+  assert.equal(client.signOuts, 0, "a resend must not end another account's session");
+  assert.equal(getAccountTransitionCoordinator().currentUserId(), A_ID);
+  assert.equal(
+    app.text().includes(`still signed in as ${A_ID}@example.com`),
+    true,
+    "the banner keeps naming the account that stayed signed in",
+  );
 });

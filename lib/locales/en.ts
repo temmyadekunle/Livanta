@@ -28,6 +28,7 @@ export const en = {
   "app.error.title": "Could not open storage",
   "app.retry": "Try again",
   "app.back": "Back",
+  "app.dismiss": "Dismiss",
   "app.brand": "Livanta",
 
   /* ---------- generic UI ---------- */
@@ -486,7 +487,9 @@ export const en = {
   "sync.lastSynced": "Last synced {time}",
   "auth.invalid": "That email and password do not match.",
   "auth.emailTaken": "An account already exists for that email.",
+  "auth.emailUnconfirmed": "Confirm your email before signing in.",
   "auth.rateLimited": "Too many attempts. Wait a minute and try again.",
+  "auth.networkError": "Could not reach the server. Check your connection and try again.",
   "auth.unknown": "Something went wrong. Try again.",
 
   /* ---------- auth screen ---------- */
@@ -516,7 +519,10 @@ export const en = {
   "auth.signInWithApple": "Continue with Apple",
   "auth.checkEmail": "Check your inbox",
   "auth.checkEmailTitle": "Check your email",
-  "auth.checkEmailBody": "If that address is new, a confirmation link is on its way.",
+  "auth.checkEmailBody": "Check your inbox for the confirmation link. If it hasn't arrived, resend it below.",
+  "auth.resendConfirmation": "Resend confirmation email",
+  "auth.resendSent": "If that address still needs confirming, a new link is on its way.",
+  "auth.useDifferentEmail": "Use a different email",
   "auth.resetSent": "Reset link sent",
   "auth.resetSentBody": "Follow the link in the email to choose a new password.",
   "auth.signedInToast": "Signed in.",
@@ -524,6 +530,13 @@ export const en = {
   "auth.passwordUpdated": "Password updated. You are signed in.",
   "auth.recoveryEndedTitle": "Your reset link has expired",
   "auth.recoveryEndedBody": "Sign in again, or request a fresh reset link.",
+  "auth.confirmLinkTitle": "That confirmation link didn't work",
+  "auth.confirmLinkExpiredBody":
+    "This link has expired or has already been used. Please sign in, or request a new link from the sign-in screen.",
+  "auth.confirmLinkInvalidBody":
+    "This link is invalid or has expired. Please sign in, or request a new link from the sign-in screen.",
+  "auth.confirmLinkStillSignedIn":
+    "You are still signed in as {email}. The new account was not confirmed.",
   "auth.signOutFailed": "Could not sign out. Check your connection and try again.",
   "auth.teardownTitle": "Signed out, but this device needs one more step",
   "auth.teardownBody": "The previous account's reminders or local records could not be cleared. Nothing else can open until that finishes.",

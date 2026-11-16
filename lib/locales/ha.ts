@@ -21,6 +21,7 @@ export const ha: Dict = {
   "app.error.title": "Ba a iya buɗe ma'ajiyar ba",
   "app.retry": "Sake gwada",
   "app.back": "Koma baya",
+  "app.dismiss": "Rufe",
 
   /* ---------- tabs ---------- */
   "tab.home": "Gida",
@@ -358,6 +359,8 @@ export const ha: Dict = {
   "auth.invalid": "Wannan imel da kalmar sirri ba tare ba.",
   "auth.emailTaken": "An riga da asusun da wannan imel.",
   "auth.rateLimited": "Shawara da yawa. Ka jira da minti daya sannan ka sake.",
+  "auth.emailUnconfirmed": "Tabbatar da imel ɗinka kafin shiga.",
+  "auth.networkError": "Ba a iya isa uwar garken ba. Duba haɗin yanar gizo ka sake gwadawa.",
   "auth.unknown": "Wani abu ya gaza. Ka sake.",
 
   /* ---------- ƙarin saƙo (redesign) ---------- */
@@ -506,7 +509,10 @@ export const ha: Dict = {
   "auth.signInWithApple": "Ci gaba da Apple",
   "auth.checkEmail": "Duba imel ɗinka",
   "auth.checkEmailTitle": "Duba imel ɗinka",
-  "auth.checkEmailBody": "Idan wannan adireshi sabo ne, ana tura mahaɗin tabbatarwa.",
+  "auth.checkEmailBody": "Duba imel ɗinka don mahaɗin tabbatarwa. Idan bai iso ba, sake aika shi a ƙasa.",
+  "auth.resendConfirmation": "Sake aika imel ɗin tabbatarwa",
+  "auth.resendSent": "Idan wannan adireshi har yanzu yana buƙatar tabbatarwa, sabon mahaɗi yana kan hanya.",
+  "auth.useDifferentEmail": "Yi amfani da wani imel",
   "auth.resetSent": "An aika mahaɗin sake saita",
   "auth.resetSentBody": "Bi mahaɗin da ke a imel don ka zaɓi sabuwar kalmar sirri.",
   "auth.signedInToast": "An shiga.",
@@ -514,6 +520,13 @@ export const ha: Dict = {
   "auth.passwordUpdated": "Kalmar sirri an sabunta. Ka shiga.",
   "auth.recoveryEndedTitle": "Mahaɗin sabunta kalmar sirri ya ƙare",
   "auth.recoveryEndedBody": "Ka sake shiga, ko ka nemi sabon mahaɗi.",
+  "auth.confirmLinkTitle": "Mahaɗin tabbatarwa bai yi aiki ba",
+  "auth.confirmLinkExpiredBody":
+    "Wannan mahaɗin ya ƙare ko an riga an yi amfani da shi. Shiga, ko ka nemi sabon mahaɗi daga shafin shiga.",
+  "auth.confirmLinkInvalidBody":
+    "Wannan mahaɗin ba daidai ba ne ko ya ƙare. Shiga, ko ka nemi sabon mahaɗi daga shafin shiga.",
+  "auth.confirmLinkStillSignedIn":
+    "Har yanzu kana shiga a matsayin {email}. Ba a tabbatar da sabon asusun a wannan na'urar ba.",
   "auth.signOutFailed": "Ba a iya fita ba. Duba haɗin yanar gizo sannan ka sake gwadawa.",
   "auth.teardownTitle": "An fita, amma wannan na'urar tana buƙatar ƙarin mataki ɗaya",
   "auth.teardownBody": "Ba a iya share tunatarwa ko bayanan asusun da ya gabata ba. Babu wani abu da zai buɗe har sai an gama.",

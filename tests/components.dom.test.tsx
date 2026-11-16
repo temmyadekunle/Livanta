@@ -34,7 +34,7 @@ define("IS_REACT_ACT_ENVIRONMENT", true);
 // React must load AFTER the globals above: a static import would hoist it to
 // module init, where canUseDOM is false and React 19 never attaches its
 // continuous ("input") listeners to the root.
-const { act } = await import("react");
+const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 
 const { default: Onboarding } = await import("../components/Onboarding.tsx");
@@ -103,6 +103,36 @@ function deskWith(things: ReturnType<typeof makeThing>[]): Desk {
     things,
     t: makeT("en"),
   } as unknown as Desk;
+}
+
+/** A signed-out device waiting on confirmation, with the new recovery actions. */
+function pendingAuth(overrides: Partial<UseAuth> = {}): UseAuth {
+  return {
+    enabled: true,
+    status: "signed-out",
+    user: null,
+    error: null,
+    needsEmailConfirmation: true,
+    pendingEmail: "new@example.com",
+    passwordResetReady: false,
+    confirmationError: null,
+    clearConfirmationError: () => {},
+    signIn: async () => true,
+    signUp: async () => ({ ok: true, needsEmailConfirmation: true }),
+    resendConfirmation: async () => ({ ok: true }),
+    clearPendingConfirmation: () => {},
+    resetPassword: async () => true,
+    updatePassword: async () => true,
+    cancelPasswordReset: () => {},
+    signOut: async () => {},
+    teardownPending: false,
+    retryTransition: async () => {},
+    clearError: () => {},
+    retrySession: async () => {},
+    signInWithGoogle: async () => true,
+    signInWithApple: async () => true,
+    ...overrides,
+  };
 }
 
 const NOW = new Date(2026, 9, 3, 9, 0);
@@ -410,6 +440,11 @@ test("AuthScreen welcome mode continues into create account and sign in", async 
     error: null,
     needsEmailConfirmation: false,
     passwordResetReady: false,
+    confirmationError: null,
+    clearConfirmationError: () => {},
+    pendingEmail: null,
+    resendConfirmation: async () => ({ ok: true as const }),
+    clearPendingConfirmation: () => {},
     signIn: async () => true,
     signUp: async () => ({ ok: true, needsEmailConfirmation: false }),
     resetPassword: async () => true,
@@ -512,6 +547,55 @@ test("AuthScreen welcome mode continues into create account and sign in", async 
     assert.ok(view.text().includes("a@b.co"));
     view.unmount();
   });
+
+  await t.test("a failed confirmation link says which failure it was", () => {
+    const expired = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub({ confirmationError: "expired" })}
+        initialMode="welcome"
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    );
+    assert.ok(expired.text().includes(en["auth.confirmLinkTitle"]));
+    assert.ok(expired.text().includes(en["auth.confirmLinkExpiredBody"]));
+    expired.unmount();
+
+    const invalid = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub({ confirmationError: "invalid" })}
+        initialMode="sign-in"
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    );
+    assert.ok(invalid.text().includes(en["auth.confirmLinkTitle"]));
+    assert.ok(invalid.text().includes(en["auth.confirmLinkInvalidBody"]));
+    assert.ok(!invalid.text().includes(en["auth.confirmLinkExpiredBody"]));
+    invalid.unmount();
+  });
+
+  await t.test("a failed link replaces the pending-confirmation prompt", () => {
+    // Elsewhere in this suite these two notices can coexist; this pins that a
+    // failure is never hidden behind a "check your email" claim.
+    const view = render(
+      <AuthScreen
+        t={makeT("en")}
+        auth={authStub({
+          needsEmailConfirmation: true,
+          confirmationError: "expired",
+        })}
+        initialMode="sign-up"
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    );
+    assert.ok(view.text().includes(en["auth.confirmLinkExpiredBody"]));
+    assert.ok(!view.text().includes(en["auth.checkEmailTitle"]));
+    view.unmount();
+  });
 });
 
 test("sign-up requiring confirmation never claims the user is signed in", async () => {
@@ -522,6 +606,11 @@ test("sign-up requiring confirmation never claims the user is signed in", async 
     error: null,
     needsEmailConfirmation: false,
     passwordResetReady: false,
+    confirmationError: null,
+    clearConfirmationError: () => {},
+    pendingEmail: null,
+    resendConfirmation: async () => ({ ok: true as const }),
+    clearPendingConfirmation: () => {},
     signIn: async () => true,
     signUp: async () => ({ ok: true, needsEmailConfirmation: true }),
     resetPassword: async () => true,
@@ -566,6 +655,115 @@ test("sign-up requiring confirmation never claims the user is signed in", async 
   view.unmount();
 });
 
+test("the pending prompt resends and reports only an accepted request", async () => {
+  const sent: string[] = [];
+  const view = render(
+    <AuthScreen
+      t={makeT("en")}
+      auth={pendingAuth({
+        resendConfirmation: async (email) => {
+          sent.push(email);
+          return { ok: true };
+        },
+      })}
+      initialMode="sign-up"
+      onClose={() => {}}
+      onDone={() => {}}
+    />,
+  );
+
+  assert.ok(view.text().includes(en["auth.checkEmailBody"]));
+  assert.ok(!view.text().includes(en["auth.resendSent"]));
+
+  const resend = [...view.container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === en["auth.resendConfirmation"],
+  );
+  assert.ok(resend, "the prompt offers a resend");
+  await act(async () => {
+    (resend as unknown as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.deepEqual(sent, ["new@example.com"], "the stored address is reused");
+  assert.ok(view.text().includes(en["auth.resendSent"]));
+  view.unmount();
+
+  const refused = render(
+    <AuthScreen
+      t={makeT("en")}
+      auth={pendingAuth({
+        resendConfirmation: async () => ({
+          ok: false,
+          error: { code: "rate-limited", message: "" },
+        }),
+      })}
+      initialMode="sign-up"
+      onClose={() => {}}
+      onDone={() => {}}
+    />,
+  );
+  const again = [...refused.container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === en["auth.resendConfirmation"],
+  );
+  assert.ok(again);
+  await act(async () => {
+    (again as unknown as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.ok(refused.text().includes(en["auth.rateLimited"]));
+  assert.ok(
+    !refused.text().includes(en["auth.resendSent"]),
+    "a refused request is never described as sent",
+  );
+  refused.unmount();
+});
+
+test("changing the email clears only the prompt and opens registration", async () => {
+  let cleared = 0;
+  let signedOut = 0;
+
+  function Harness() {
+    const [pending, setPending] = useState(true);
+    return (
+      <AuthScreen
+        t={makeT("en")}
+        auth={pendingAuth({
+          needsEmailConfirmation: pending,
+          pendingEmail: pending ? "wrong@example.com" : null,
+          clearPendingConfirmation: () => {
+            cleared += 1;
+            setPending(false);
+          },
+          signOut: async () => {
+            signedOut += 1;
+          },
+        })}
+        initialMode="sign-up"
+        onClose={() => {}}
+        onDone={() => {}}
+      />
+    );
+  }
+
+  const view = render(<Harness />);
+  const change = [...view.container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === en["auth.useDifferentEmail"],
+  );
+  assert.ok(change, "the prompt offers another address");
+  await act(async () => {
+    (change as unknown as HTMLElement).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  assert.equal(cleared, 1);
+  assert.equal(signedOut, 0, "changing the address never signs anything out");
+  assert.ok(!view.text().includes(en["auth.checkEmailBody"]));
+  assert.ok(view.text().includes(en["auth.signUpTitle"]));
+  const email = view.container.querySelector("#a-email") as HTMLInputElement | null;
+  assert.ok(email, "the registration form is what comes next");
+  assert.equal(email.value, "", "the mistyped address is not carried over");
+  view.unmount();
+});
+
 test("an expired recovery session explains itself and offers sign-in", () => {
   const cancelled: string[] = [];
   const authStub = (overrides: Partial<UseAuth> = {}): UseAuth => ({
@@ -575,6 +773,11 @@ test("an expired recovery session explains itself and offers sign-in", () => {
     error: null,
     needsEmailConfirmation: false,
     passwordResetReady: true,
+    confirmationError: null,
+    clearConfirmationError: () => {},
+    pendingEmail: null,
+    resendConfirmation: async () => ({ ok: true as const }),
+    clearPendingConfirmation: () => {},
     signIn: async () => true,
     signUp: async () => ({ ok: true, needsEmailConfirmation: false }),
     resetPassword: async () => true,

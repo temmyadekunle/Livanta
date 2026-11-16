@@ -120,7 +120,11 @@ export function useLivanta(
   const current = local.scope === store;
   const things = current ? local.things : NO_THINGS;
   const dismissedIds = current ? local.dismissedIds : NO_DISMISSED_IDS;
-  const settings = current ? local.settings : DEFAULT_SETTINGS;
+  const settings = ownerMismatch
+    ? DEFAULT_SETTINGS
+    : current
+      ? local.settings
+      : DEFAULT_SETTINGS;
   const ready = ownerMismatch ? false : (current && local.ready);
   const loading = ownerMismatch ? false : (current ? local.loading : true);
   const error = ownerMismatch

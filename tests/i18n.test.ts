@@ -91,6 +91,46 @@ test("locale completeness", async (t) => {
   }
 });
 
+test("failed link copy", async (t) => {
+  // otp_expired and invalid links are shared with password recovery, so this
+  // copy cannot tell a failed sign-up from a failed reset.
+  const BODIES = [
+    "auth.confirmLinkExpiredBody",
+    "auth.confirmLinkInvalidBody",
+  ] as const;
+
+  // Each catalogue's wording for the sign-up form, which this copy used to
+  // send failed links back to.
+  const SIGNUP_FORM: Record<string, string> = {
+    en: "sign-up",
+    ha: "rijista",
+    ig: "ndebanye aha",
+    yo: "ìforúkọsílẹ̀",
+  };
+
+  await t.test("English points back to sign-in in both cases", () => {
+    for (const key of BODIES) {
+      const body = en[key].toLowerCase();
+      assert.ok(!body.includes("sign-up") && !body.includes("sign up"), `${key} mentions sign-up`);
+      assert.ok(body.includes("sign in"), `${key} does not point at sign-in`);
+    }
+  });
+
+  await t.test("no locale sends a failed link to the sign-up form", () => {
+    for (const locale of LOCALES) {
+      const dict = DICTIONARIES[locale] as Record<string, string>;
+      for (const key of BODIES) {
+        const body = dict[key].toLowerCase();
+        assert.ok(
+          !body.includes(SIGNUP_FORM[locale].toLowerCase()) &&
+            !body.includes(dict["auth.signUpTitle"].toLowerCase()),
+          `${locale} ${key} directs the user to sign up`,
+        );
+      }
+    }
+  });
+});
+
 test("locales", async (t) => {
   await t.test("supports exactly four locales", () => {
     assert.deepEqual([...LOCALES], ["en", "ha", "yo", "ig"]);

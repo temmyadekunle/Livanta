@@ -10,7 +10,7 @@ import { ConfirmDialog, Sheet, Toast, useToast } from "./ui";
 import { Logo } from "./Logo";
 import { QuickAddSheet } from "./QuickAdd";
 import { ThingDetailSheet } from "./ThingDetail";
-import { AuthScreen } from "./AuthScreen";
+import { AuthScreen, authErrorLabel } from "./AuthScreen";
 import Onboarding from "./Onboarding";
 import ThingEditor from "./ThingEditor";
 import { HomeScreen } from "./screens/HomeScreen";
@@ -134,6 +134,15 @@ export default function LivantaApp({
   const [identityRevoked, setIdentityRevoked] = useState(false);
   /** A local teardown failed; nothing may activate until it succeeds. */
   const [transitionFailure, setTransitionFailure] = useState<string | null>(null);
+  /* The failed-link banner resends to an address the user names: the account
+     still signed in is not the one whose link failed, so its address is only a
+     starting point, never an assumption. */
+  const [resendEmail, setResendEmail] = useState(() => auth.pendingEmail ?? "");
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendStatus, setResendStatus] = useState<{
+    tone: "ok" | "danger";
+    text: string;
+  } | null>(null);
 
   /* One pure decision owns which surface may render. In particular it has no
      dismissal input and does not consult local storage, so neither an earlier
@@ -152,6 +161,21 @@ export default function LivantaApp({
 
   const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
   const pop = useCallback(() => setStack((s) => s.slice(0, -1)), []);
+
+  async function resendFromBanner(event: React.FormEvent) {
+    event.preventDefault();
+    if (!resendEmail.trim() || resendBusy) return;
+    setResendBusy(true);
+    setResendStatus(null);
+    const outcome = await auth.resendConfirmation(resendEmail);
+    setResendBusy(false);
+    // Only a request Supabase accepted may be described as on its way.
+    setResendStatus(
+      outcome.ok
+        ? { tone: "ok", text: t("auth.resendSent") }
+        : { tone: "danger", text: authErrorLabel(t, outcome.error.code) },
+    );
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -809,6 +833,81 @@ export default function LivantaApp({
         />
 
         <main className="app__body" id="app-main" tabIndex={-1}>
+          {auth.confirmationError ? (
+            <div style={{ marginBottom: "0.875rem" }}>
+              <div className="notice notice--danger" role="alert">
+                <Icon name="alert" size={18} className="notice__icon" />
+                <div className="notice__body">
+                  <strong>{t("auth.confirmLinkTitle")}</strong>
+                  <br />
+                  {t("auth.confirmLinkStillSignedIn", {
+                    email: auth.user?.email ?? "",
+                  })}
+                  <div
+                    style={{
+                      marginTop: "0.625rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.5rem",
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    {resendStatus ? (
+                      <p
+                        role="status"
+                        style={{
+                          color:
+                            resendStatus.tone === "danger"
+                              ? "var(--danger)"
+                              : "var(--ok)",
+                        }}
+                      >
+                        {resendStatus.text}
+                      </p>
+                    ) : null}
+                    <form
+                      onSubmit={resendFromBanner}
+                      style={{
+                        display: "flex",
+                        gap: "0.5rem",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        width: "100%",
+                      }}
+                    >
+                      <input
+                        id="resend-email"
+                        type="email"
+                        autoComplete="email"
+                        inputMode="email"
+                        aria-label={t("account.email")}
+                        placeholder="name@example.com"
+                        value={resendEmail}
+                        onChange={(event) => setResendEmail(event.target.value)}
+                        style={{ flex: "1 1 12rem", minWidth: 0 }}
+                      />
+                      <button
+                        type="submit"
+                        className="btn btn--soft btn--sm"
+                        disabled={resendBusy || !resendEmail.trim()}
+                      >
+                        {resendBusy
+                          ? t("auth.working")
+                          : t("auth.resendConfirmation")}
+                      </button>
+                    </form>
+                    <button
+                      className="btn btn--soft btn--sm"
+                      onClick={() => auth.clearConfirmationError()}
+                    >
+                      {t("app.dismiss")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {desk.error ? (
             <div style={{ marginBottom: "0.875rem" }}>
               <div className="notice notice--danger">

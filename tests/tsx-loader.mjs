@@ -30,6 +30,11 @@ export async function resolve(specifier, context, next) {
     if (!stub) throw new Error("Missing tests/stubs/next-dynamic.tsx");
     return next(stub, context);
   }
+  if (specifier === "next/link") {
+    const stub = resolveFile("tests/stubs/next-link");
+    if (!stub) throw new Error("Missing tests/stubs/next-link.tsx");
+    return next(stub, context);
+  }
   if (specifier.startsWith("@/")) {
     const found = resolveFile(specifier.slice(2));
     if (!found) {
