@@ -21,7 +21,7 @@ export default function PrivacyPage() {
 
       <h1>Privacy policy</h1>
       <p className="legal__meta">
-        Version 0.2 &middot; draft &middot; 13 November 2026 &middot; applies to
+        Version 0.3 &middot; draft &middot; 17 November 2026 &middot; applies to
         the Livanta beta
       </p>
 
@@ -62,9 +62,10 @@ export default function PrivacyPage() {
           restore in this beta.
         </li>
         <li>
-          <strong>Local records are not separated by account.</strong> If two
-          people sign in on the same browser or device, they see the same
-          records. Signing out does not delete anything.
+          <strong>Records are kept per account on this device.</strong> Each
+          account that signs in on this browser or app installation has its own
+          local records, and only the signed-in account&rsquo;s records are
+          shown. Signing out does not delete anything.
         </li>
         <li>
           <strong>No advertising, analytics or tracking.</strong> We do not sell
@@ -154,11 +155,14 @@ export default function PrivacyPage() {
 
       <h3>On your device</h3>
       <p>
-        Records and settings are kept in IndexedDB, in a database named{" "}
-        <code>lifedesk</code>, using object stores named <code>things</code>,{" "}
-        <code>alerts</code>, <code>members</code> and <code>settings</code>.
-        This database lives inside your browser profile or the app&rsquo;s
-        storage on your device. We do not receive a copy, and we cannot read it.
+        Records and settings are kept in IndexedDB in a local database that
+        belongs to your account on this device, using object stores named{" "}
+        <code>things</code>, <code>alerts</code>, <code>members</code> and{" "}
+        <code>settings</code>. Each account that signs in gets its own local
+        database, named from the account&rsquo;s identifier, so two accounts on
+        one device cannot read or clear each other&rsquo;s records. These
+        databases live inside your browser profile or the app&rsquo;s storage on
+        your device. We do not receive a copy, and we cannot read them.
       </p>
       <p>Your device also stores:</p>
       <ul>
@@ -196,7 +200,9 @@ export default function PrivacyPage() {
       <p>
         Signing in does not move your records between devices. There is no cloud
         sync, no cloud backup and no restore from a server in this beta. An
-        account is a way to sign in, not a backup of your records.
+        account is a way to sign in, not a backup of your records. Each device
+        keeps its own local copy: another device you sign in to does not receive
+        your records automatically, and nothing merges the two copies.
       </p>
       <p>
         You may see sync-related labels or a sync control in the Profile tab.
@@ -207,26 +213,32 @@ export default function PrivacyPage() {
 
       <h2>6. Accounts on a shared device</h2>
       <p>
-        Livanta keeps one local record set for this browser or app installation,
-        not one per account. There is not yet any separation between accounts on
-        the same device. That means:
+        Livanta keeps a separate local record set for each account that signs in
+        on this browser or app installation. The records shown are those of the
+        account currently signed in. That means:
       </p>
       <ul>
         <li>
-          anyone who can use your signed-in session, or who signs in on the same
-          browser or device, can see your records;
+          anyone who can use your signed-in session can see that
+          account&rsquo;s records;
         </li>
         <li>
-          if another person signs in on the same browser or device, they will
-          see the same local records;
+          another person who signs in on the same browser or device gets their
+          own local records and does not see yours;
         </li>
-        <li>signing out does not hide or delete the records.</li>
+        <li>
+          signing out does not delete anything; your records remain on the
+          device until you delete them, and are shown again when you sign back
+          in to the same account.
+        </li>
       </ul>
       <p>
-        Protect the device with a screen lock and a strong passcode, and use
+        Protect the device with a screen lock and a strong passcode. Use
         &ldquo;Delete all my data&rdquo; in the Profile tab before handing the
-        device or browser profile to someone else. Clearing the browser&rsquo;s
-        site data or uninstalling the app also removes the local records.
+        device or browser profile to someone else; it erases the signed-in
+        account&rsquo;s records and settings on this device. Clearing the
+        browser&rsquo;s site data or uninstalling the app removes all local
+        records.
       </p>
 
       <h2>7. What we do not do</h2>
@@ -335,9 +347,10 @@ export default function PrivacyPage() {
         <li>
           <strong>On your device:</strong> until you delete it. Marking an item
           as handled keeps it in your records until you delete it. &ldquo;Delete
-          all my data&rdquo; erases the records and settings in this browser or
-          app, but not your account. Clearing site data or uninstalling the app
-          also erases them.
+          all my data&rdquo; erases the records and settings for the signed-in
+          account in this browser or app, but not your account or any other
+          account&rsquo;s local records. Clearing site data or uninstalling the
+          app also erases them.
         </li>
         <li>
           <strong>With Supabase:</strong> your email address and authentication

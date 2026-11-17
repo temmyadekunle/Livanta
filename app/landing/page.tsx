@@ -359,8 +359,9 @@ export default function LandingPage() {
           alerts and calendar screens, the service worker, and the Profile
           screen's export and import. The middle card states the storage limits
           in the same terms as the FAQ and the download section, including that
-          records are not yet separated per account. The last card names no
-          date for a store listing or sharing, because there is none.
+          records are stored per account on the device and that clearing site
+          data removes them. The last card names no date for a store listing or
+          sharing, because there is none.
         */}
         <section className="lp-section lp-section--tint" id="availability">
           <div className="lp-wrap">
@@ -428,9 +429,12 @@ export default function LandingPage() {
                 <p className="lp-card__body">
                   Syncing one list across devices is switched off, and there is
                   no cloud backup or restore. Your records stay in this
-                  browser&apos;s or this device&apos;s local storage. Signing in
-                  does not upload them, and they are not yet separated by
-                  account. Export from the Profile tab if you need a copy.
+                  browser&apos;s or this device&apos;s local storage, kept
+                  separately for the account signed in there. Signing in does
+                  not upload them, and each device keeps its own copy. Export
+                  from the Profile tab if you need a copy; clearing this
+                  browser&apos;s site data or uninstalling the app deletes the
+                  local records.
                 </p>
               </article>
 
@@ -575,8 +579,7 @@ export default function LandingPage() {
                     </li>
                   </ul>
                   <p className="lp-stage__fine">
-                    Cloud sync, cloud backup and records separated by account are
-                    not part of Core today.
+                    Cloud sync and cloud backup are not part of Core today.
                   </p>
                 </article>
               </li>

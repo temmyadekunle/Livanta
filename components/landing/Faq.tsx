@@ -45,12 +45,14 @@ export const FAQ_ITEMS: FaqItem[] = [
     q: "Where is my data stored, and who can see it?",
     a: (
       <>
-        In this browser&apos;s or this device&apos;s local storage. Your records
-        are not uploaded to a sync service, because cloud sync is not active,
-        and there is no cloud backup. Signing in does not yet separate records by
-        account, so anyone with access to this browser profile or device can
-        open them. You can export everything as a JSON file from the Profile
-        screen.
+        In this browser&apos;s or this device&apos;s local storage, kept
+        separately for the account signed in there. Your records are not
+        uploaded to a sync service, because cloud sync is not active, and there
+        is no cloud backup. Signing out hides them; signing back in to the same
+        account on this device shows them again. Anyone who can use this browser
+        profile or device while your account is signed in could open them.
+        Clearing this browser&apos;s site data or uninstalling the app deletes
+        them, so export a copy from the Profile screen if you need one.
       </>
     ),
   },

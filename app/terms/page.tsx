@@ -18,7 +18,7 @@ export default function TermsPage() {
 
       <h1>Terms of use</h1>
       <p className="legal__meta">
-        Version 0.2 &middot; draft &middot; 13 November 2026 &middot; applies to
+        Version 0.3 &middot; draft &middot; 17 November 2026 &middot; applies to
         the Livanta beta
       </p>
 
@@ -96,10 +96,10 @@ export default function TermsPage() {
           Signing out ends your session but does not delete the records stored
           on the device.
         </strong>{" "}
-        Accounts are not yet separated on a device: if another person signs in
-        on the same browser or app installation, they will see the same local
-        records. Use &ldquo;Delete all my data&rdquo; before handing over a
-        shared device, and see section 9.
+        Records on a device are kept per account: if another person signs in on
+        the same browser or app installation, they get their own local records
+        and do not see yours. Use &ldquo;Delete all my data&rdquo; before
+        handing over a shared device, and see section 9.
       </p>
 
       <h2>5. Your content and our intellectual property</h2>
@@ -190,9 +190,10 @@ export default function TermsPage() {
           There is no cloud sync and no cloud backup in this beta.
         </strong>{" "}
         Signing in does not upload your records, and your account is not a
-        backup. Export your data regularly from the Profile tab and keep the
-        file somewhere safe. The operator is not liable for records lost on a
-        device the operator does not control.
+        backup. Records are kept per account on each device and are not copied
+        automatically to another device. Export your data regularly from the
+        Profile tab and keep the file somewhere safe. The operator is not liable
+        for records lost on a device the operator does not control.
       </p>
 
       <h2>10. Export and deletion</h2>
@@ -200,8 +201,9 @@ export default function TermsPage() {
         &ldquo;Export my data&rdquo; in the Profile tab downloads your records
         and settings as a JSON file. You can import that file on the same or
         another device. &ldquo;Delete all my data&rdquo; erases the records and
-        settings stored in this browser or app installation. It does not delete
-        your account or sign you out.
+        settings stored for the signed-in account in this browser or app
+        installation, not any other account&rsquo;s local records. It does not
+        delete your account or sign you out.
       </p>
       <p>
         In-app account deletion is not available yet. To delete an account and
