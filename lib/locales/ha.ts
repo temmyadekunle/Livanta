@@ -546,6 +546,7 @@ export const ha: Dict = {
   "auth.passwordUpdated": "Kalmar sirri an sabunta. Ka shiga.",
   "auth.recoveryEndedTitle": "Mahaɗin sabunta kalmar sirri ya ƙare",
   "auth.recoveryEndedBody": "Ka sake shiga, ko ka nemi sabon mahaɗi.",
+  "auth.confirmLinkWorking": "Ana tabbatar da mahaɗin ku…",
   "auth.confirmLinkTitle": "Mahaɗin tabbatarwa bai yi aiki ba",
   "auth.confirmLinkExpiredBody":
     "Wannan mahaɗin ya ƙare ko an riga an yi amfani da shi. Shiga, ko ka nemi sabon mahaɗi daga shafin shiga.",

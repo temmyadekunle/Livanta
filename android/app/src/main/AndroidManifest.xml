@@ -23,6 +23,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Email confirmation and recovery links point at the published
+                 site. Opening them in the app requires a verified App Link for
+                 that exact host. /auth/confirm/ carries the token hash, which
+                 the native bridge verifies in place; the root still carries the
+                 older implicit fragment, which is replayed onto the app's own
+                 WebView origin. Unrelated website paths are deliberately not
+                 claimed. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="livanta.folababy02.workers.dev"
+                    android:path="/" />
+                <data
+                    android:scheme="https"
+                    android:host="livanta.folababy02.workers.dev"
+                    android:path="/auth/confirm/" />
+            </intent-filter>
+
         </activity>
 
         <provider

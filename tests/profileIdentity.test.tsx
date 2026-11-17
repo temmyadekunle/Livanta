@@ -70,6 +70,8 @@ function authFor(email: string): UseAuth {
     needsEmailConfirmation: false,
     confirmationError: null,
     emailLinkAuthenticated: false,
+    emailLinkVerifying: false,
+    emailLinkAttempted: false,
     clearConfirmationError: () => {},
     pendingEmail: null,
     resendConfirmation: async () => ({ ok: true as const }),

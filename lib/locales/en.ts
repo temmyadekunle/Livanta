@@ -556,6 +556,7 @@ export const en = {
   "auth.passwordUpdated": "Password updated. You are signed in.",
   "auth.recoveryEndedTitle": "Your reset link has expired",
   "auth.recoveryEndedBody": "Sign in again, or request a fresh reset link.",
+  "auth.confirmLinkWorking": "Confirming your link…",
   "auth.confirmLinkTitle": "That confirmation link didn't work",
   "auth.confirmLinkExpiredBody":
     "This link has expired or has already been used. Please sign in, or request a new link from the sign-in screen.",

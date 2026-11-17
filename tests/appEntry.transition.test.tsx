@@ -1313,7 +1313,7 @@ test("the failed-link banner resends without signing the current account out", a
       {
         type: "signup",
         email: "waiting@example.com",
-        redirectTo: "https://livanta.test/",
+        redirectTo: "https://livanta.test/auth/confirm/",
       },
     ],
     "the resend asks Supabase for a signup confirmation and returns here",

@@ -51,7 +51,9 @@ const { getAccountTransitionCoordinator, resetAccountTransitionForTesting } =
   await import("../lib/accountTransition.ts");
 const { en } = await import("../lib/locales/en.ts");
 const { resetEntryGateForTesting } = await import("../lib/entryGate.ts");
-const { resetAuthForTesting } = await import("../lib/useAuth.ts");
+const { resetAuthForTesting, verifyEmailLinkToken } = await import(
+  "../lib/useAuth.ts"
+);
 const { setSupabaseForTesting } = await import("../lib/supabase/client.ts");
 const { setLockManager } = await import("../lib/identityLock.ts");
 const { resetIdentityChannelForTesting } = await import(
@@ -82,6 +84,7 @@ type Root = import("react-dom/client").Root;
 
 const A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
+const TOKEN_HASH = "a".repeat(56);
 
 const A_ACCOUNT = {
   id: A_ID,
@@ -118,11 +121,20 @@ type AuthEvent = Parameters<
   >[0]
 >[0];
 
-function fakeClient(session: Session | null) {
+interface VerifyOptions {
+  error?: { code: string; message: string; status?: number };
+  /** The session the exchange would publish on success. */
+  session?: Session | null;
+  /** Lets a test observe the app while `verifyOtp` is still in flight. */
+  hold?: Promise<void>;
+}
+
+function fakeClient(session: Session | null, verify: VerifyOptions = {}) {
   let current = session;
   let listener: ((event: AuthEvent, session: Session | null) => void) | null =
     null;
-  return {
+  const verifyCalls: Array<{ token_hash: string; type: string }> = [];
+  const client = {
     auth: {
       getSession: async () => ({ data: { session: current }, error: null }),
       onAuthStateChange: (callback: (event: AuthEvent, session: Session | null) => void) => {
@@ -154,12 +166,30 @@ function fakeClient(session: Session | null) {
       resend: async () => ({ error: null }),
       updateUser: async () => ({ error: null }),
       signInWithOAuth: async () => ({ error: null }),
+      verifyOtp: async (params: { token_hash: string; type: string }) => {
+        verifyCalls.push(params);
+        if (verify.hold) await verify.hold;
+        if (verify.error) {
+          return { data: { session: null, user: null }, error: verify.error };
+        }
+        const next = verify.session === undefined ? current : verify.session;
+        current = next;
+        if (next) {
+          listener?.(
+            params.type === "recovery" ? "PASSWORD_RECOVERY" : "SIGNED_IN",
+            next,
+          );
+        }
+        return { data: { session: next, user: next?.user ?? null }, error: null };
+      },
     },
     emit(event: AuthEvent, next: Session | null) {
       current = next;
       listener?.(event, next);
     },
+    verifyCalls,
   };
+  return client;
 }
 
 interface ScheduledNotification {
@@ -681,4 +711,165 @@ test("A's confirmation replaces B's device without exposing B's records", async 
     "only A's plan remains armed",
   );
   assert.ok(adapter.cancels >= 1, "B's plan was cancelled in the switch");
+});
+
+test("a token-hash confirmation holds every surface, then opens the desk", async () => {
+  await seedAccount(A_ID, "A private bill");
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const client = fakeClient(null, {
+    session: sessionFor(A_ID, A_ACCOUNT.email, "token-hash-session"),
+    hold,
+  });
+  setSupabaseForTesting(
+    client as unknown as import("@supabase/supabase-js").SupabaseClient,
+  );
+
+  const app = await mountEntry();
+  await waitUntil(
+    () => app.text().includes(en["intro.welcomeBody"]),
+    "the introduction before the link settles",
+  );
+
+  let outcome!: ReturnType<typeof verifyEmailLinkToken>;
+  act(() => {
+    outcome = verifyEmailLinkToken({ type: "signup", tokenHash: TOKEN_HASH });
+  });
+  await waitUntil(() => app.text() === "", "the in-flight verification hold");
+  assert.equal(
+    app.text().includes(en["intro.welcomeBody"]),
+    false,
+    "nothing underneath is mistaken for the link's result",
+  );
+
+  release();
+  await act(async () => {
+    assert.deepEqual(await outcome, { ok: true, type: "signup" });
+  });
+  await waitUntil(() => isOnDesk(app), "the confirmed account's desk");
+
+  assert.deepEqual(client.verifyCalls, [
+    { token_hash: TOKEN_HASH, type: "signup" },
+  ]);
+  assert.equal(
+    app.text().includes(en["intro.welcomeBody"]),
+    false,
+    "a verified link does not replay the introduction",
+  );
+  assert.equal(
+    app.text().includes(`Continue as ${A_ACCOUNT.email}`),
+    false,
+    "a verified link does not ask for the account choice",
+  );
+  assert.equal(app.text().includes("A private bill"), true);
+});
+
+test("an expired token-hash link skips only the introduction", async () => {
+  const client = fakeClient(null, {
+    error: {
+      code: "otp_expired",
+      message: "Email link is invalid or has expired",
+      status: 403,
+    },
+  });
+  setSupabaseForTesting(
+    client as unknown as import("@supabase/supabase-js").SupabaseClient,
+  );
+
+  const app = await mountEntry();
+  await waitUntil(
+    () => app.text().includes(en["intro.welcomeBody"]),
+    "the introduction before the link settles",
+  );
+
+  await act(async () => {
+    assert.deepEqual(
+      await verifyEmailLinkToken({ type: "signup", tokenHash: TOKEN_HASH }),
+      { ok: false, error: "expired" },
+    );
+  });
+  await waitUntil(
+    () => app.text().includes(en["auth.confirmLinkExpiredBody"]),
+    "the expired-link explanation beside the gate",
+  );
+
+  assert.equal(
+    app.text().includes(en["intro.welcomeBody"]),
+    false,
+    "a failed link does not replay the introduction",
+  );
+  assert.equal(
+    app.text().includes(en["auth.signUpTitle"]),
+    true,
+    "authentication stays compulsory",
+  );
+  assert.equal(
+    app.text().includes(`Continue as ${A_ACCOUNT.email}`),
+    false,
+    "a failed link never offers an account",
+  );
+  assert.equal(isOnDesk(app), false, "a failed link opens nothing");
+});
+
+test("a malformed token is refused before the network and cannot prove an account", async () => {
+  const client = fakeClient(null);
+  setSupabaseForTesting(
+    client as unknown as import("@supabase/supabase-js").SupabaseClient,
+  );
+
+  const app = await mountEntry();
+  await waitUntil(
+    () => app.text().includes(en["intro.welcomeBody"]),
+    "the introduction before the malformed token",
+  );
+
+  await act(async () => {
+    assert.deepEqual(
+      await verifyEmailLinkToken({
+        type: "magiclink" as never,
+        tokenHash: TOKEN_HASH,
+      }),
+      { ok: false, error: "invalid" },
+    );
+  });
+  await waitUntil(
+    () => app.text().includes(en["auth.confirmLinkInvalidBody"]),
+    "the invalid-link explanation beside the gate",
+  );
+
+  assert.equal(client.verifyCalls.length, 0, "the network is never called");
+  assert.equal(app.text().includes(en["intro.welcomeBody"]), false);
+  assert.equal(app.text().includes(en["auth.signUpTitle"]), true);
+  assert.equal(isOnDesk(app), false);
+});
+
+test("a recovery token opens the new-password form, not the desk", async () => {
+  const client = fakeClient(null, {
+    session: sessionFor(A_ID, A_ACCOUNT.email, "recovery-session"),
+  });
+  setSupabaseForTesting(
+    client as unknown as import("@supabase/supabase-js").SupabaseClient,
+  );
+
+  const app = await mountEntry();
+  await waitUntil(
+    () => app.text().includes(en["intro.welcomeBody"]),
+    "the introduction before the recovery link",
+  );
+
+  await act(async () => {
+    assert.deepEqual(
+      await verifyEmailLinkToken({ type: "recovery", tokenHash: TOKEN_HASH }),
+      { ok: true, type: "recovery" },
+    );
+  });
+  await waitUntil(
+    () => app.text().includes(en["auth.newPasswordTitle"]),
+    "the recovery form",
+  );
+
+  assert.equal(app.text().includes(en["intro.welcomeBody"]), false);
+  assert.equal(isOnDesk(app), false, "a recovery session does not open the desk");
 });

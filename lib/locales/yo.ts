@@ -538,6 +538,7 @@ export const yo: Dict = {
   "auth.passwordUpdated": "A ṣe àtúnṣe ọ̀rọ̀ ìpamọ́. O ti wọlé.",
   "auth.recoveryEndedTitle": "Ọ̀nà àtúnṣe ọ̀rọ̀ ìpamọ́ ti parí",
   "auth.recoveryEndedBody": "Wọlé lẹ́ẹ̀kan sí i, tàbí béèrè fún ọ̀nà tuntun.",
+  "auth.confirmLinkWorking": "Ń ṣàyẹ̀wò ọ̀nà rẹ…",
   "auth.confirmLinkTitle": "Ọ̀nà ìfẹ̀rí yẹn kò ṣiṣẹ́",
   "auth.confirmLinkExpiredBody":
     "Ọ̀nà yìí ti parí tàbí a ti lò ó tẹ́lẹ̀. Wọlé, tàbí béèrè fún ọ̀nà tuntun láti ojú-ìwé ìwọlé.",

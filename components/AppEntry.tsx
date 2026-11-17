@@ -73,13 +73,25 @@ export default function AppEntry() {
   /* The fragment is visible a moment before the client finishes exchanging it.
      Holding the introduction until the session settles stops it flashing for
      a user who is about to land on the desk. A link that fails to exchange
-     settles into the ordinary flow on the next render. */
+     settles into the ordinary flow on the next render. Implicit links arrived
+     through the native bridge already reload this page with the fragment, so
+     there is nothing to wait for here. */
   if (linkPending && auth.status === "loading") return null;
 
+  /* A token-hash link is verified in place on Android, so there may be a
+     restored account, an armed reminder plan, or the introduction underneath
+     while `verifyOtp` is in flight. Holding every surface until it settles
+     means none of those can be mistaken for the link's result. */
+  if (auth.emailLinkVerifying) return null;
+
+  /* A broken token link still deserves its explanation straight away. Skipping
+     the introduction is presentation only: the welcome choice remains, since
+     an invalid link is never proof of an account. */
   if (
     shouldShowIntroduction({ authEnabled: auth.enabled }) &&
     !gate.introDone &&
-    !linkedLaunch
+    !linkedLaunch &&
+    !auth.emailLinkAttempted
   ) {
     return (
       <Introduction

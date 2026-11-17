@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.temmyadekunle.livanta",
+      "sha256_cert_fingerprints": [
+        "DB:43:17:9E:CA:77:D5:80:D6:04:FB:9A:8C:46:C8:09:AB:9D:EB:E3:15:5F:C8:4D:C4:20:16:F8:24:49:25:C2"
+      ]
+    }
+  }
+]

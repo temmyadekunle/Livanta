@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import NativeAuthLinkBridge from "@/components/NativeAuthLinkBridge";
 import SwRegister from "@/components/SwRegister";
 import "./globals.css";
 
@@ -57,6 +58,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {children}
+        <NativeAuthLinkBridge />
         <SwRegister />
       </body>
     </html>

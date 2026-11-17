@@ -258,14 +258,17 @@ test("sign-up, reset and OAuth all return to the origin that submitted the form"
   assert.equal(capture.signUp?.email, "new@example.com");
   assert.equal(
     capture.signUp?.options?.emailRedirectTo,
-    "https://livanta.test/",
-    "confirmation returns to this origin rather than the project Site URL",
+    "https://livanta.test/auth/confirm/",
+    "confirmation returns to the token-hash page on this origin, not the project Site URL",
   );
 
   await act(async () => {
     assert.equal(await view.auth.resetPassword("new@example.com"), true);
   });
-  assert.equal(capture.reset?.options?.redirectTo, "https://livanta.test/");
+  assert.equal(
+    capture.reset?.options?.redirectTo,
+    "https://livanta.test/auth/confirm/",
+  );
 
   await act(async () => {
     assert.equal(await view.auth.signInWithGoogle(), true);
@@ -385,7 +388,7 @@ test("a resend targets the submitting origin and reports only what Supabase answ
   assert.deepEqual(capture.resend, {
     type: "signup",
     email: "new@example.com",
-    options: { emailRedirectTo: "https://livanta.test/" },
+    options: { emailRedirectTo: "https://livanta.test/auth/confirm/" },
   });
   view.unmount();
 });

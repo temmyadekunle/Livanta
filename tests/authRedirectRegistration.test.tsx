@@ -206,7 +206,7 @@ test("a production build served from localhost emails the published origin", asy
     capture.resend?.options?.emailRedirectTo,
   ];
   for (const destination of destinations) {
-    assert.equal(destination, `${PUBLISHED_AUTH_ORIGIN}/`);
+    assert.equal(destination, `${PUBLISHED_AUTH_ORIGIN}/auth/confirm/`);
     assert.equal(
       destination?.includes("localhost"),
       false,
@@ -230,7 +230,7 @@ test("local development still emails the running local server", async () => {
 
   assert.equal(
     capture.signUp?.options?.emailRedirectTo,
-    `${LOCAL_ORIGIN}/`,
+    `${LOCAL_ORIGIN}/auth/confirm/`,
     "a developer testing locally can follow the link on the same machine",
   );
 
@@ -253,9 +253,18 @@ test("a configured beta origin replaces localhost on every email flow", async ()
     await view.auth.resendConfirmation("new@example.com");
   });
 
-  assert.equal(capture.signUp?.options?.emailRedirectTo, "https://beta.livanta.test/");
-  assert.equal(capture.reset?.options?.redirectTo, "https://beta.livanta.test/");
-  assert.equal(capture.resend?.options?.emailRedirectTo, "https://beta.livanta.test/");
+  assert.equal(
+    capture.signUp?.options?.emailRedirectTo,
+    "https://beta.livanta.test/auth/confirm/",
+  );
+  assert.equal(
+    capture.reset?.options?.redirectTo,
+    "https://beta.livanta.test/auth/confirm/",
+  );
+  assert.equal(
+    capture.resend?.options?.emailRedirectTo,
+    "https://beta.livanta.test/auth/confirm/",
+  );
 
   view.unmount();
 });

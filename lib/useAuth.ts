@@ -30,6 +30,11 @@ import {
   parseConfirmationLinkAccessToken,
   type AuthLinkError,
 } from "./authLinkError.ts";
+import {
+  AUTH_CONFIRM_PATH,
+  isTokenHashLink,
+  type TokenHashLink,
+} from "./authTokenHash.ts";
 import { identityTransportKind } from "./identityTransport.ts";
 import { isEntryChoicePending } from "./entryGate.ts";
 import {
@@ -68,6 +73,11 @@ export interface AuthError {
 export type ResendOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: AuthError };
+
+/** The result of presenting an emailed token hash, without the token. */
+export type EmailLinkOutcome =
+  | { readonly ok: true; readonly type: TokenHashLink["type"] }
+  | { readonly ok: false; readonly error: AuthLinkError };
 
 /**
  * Sign-up reports the confirmation requirement as part of its result rather
@@ -117,6 +127,19 @@ export interface UseAuth {
    * account choice without weakening either for ordinary sessions.
    */
   emailLinkAuthenticated: boolean;
+  /**
+   * A token-hash link from this launch is being exchanged with Supabase. The
+   * entry gate holds while this is true so a restored session cannot be shown
+   * before the link has either succeeded or failed.
+   */
+  emailLinkVerifying: boolean;
+  /**
+   * A token-hash link was received in this launch, even if it was invalid.
+   * The introduction is skipped so a broken link is explained immediately,
+   * but the authentication choice is not: only a verified link proves an
+   * identity.
+   */
+  emailLinkAttempted: boolean;
   /**
    * True when the session in hand came from an emailed recovery link, so the
    * only sensible next step is choosing a new password. See the PASSWORD_RECOVERY
@@ -250,6 +273,8 @@ interface AuthState {
   pendingEmail: string | null;
   confirmationError: AuthLinkError | null;
   emailLinkAuthenticated: boolean;
+  emailLinkVerifying: boolean;
+  emailLinkAttempted: boolean;
   passwordResetReady: boolean;
   teardownPending: boolean;
 }
@@ -264,6 +289,8 @@ function initialState(): AuthState {
     pendingEmail: isCloudEnabled() ? readPendingEmail() : null,
     confirmationError: null,
     emailLinkAuthenticated: false,
+    emailLinkVerifying: false,
+    emailLinkAttempted: false,
     passwordResetReady: false,
     teardownPending: false,
   };
@@ -839,6 +866,112 @@ async function retrySession(): Promise<void> {
   await applySession();
 }
 
+/**
+ * The reason a verification failed, mapped to the two explanations the entry
+ * flow already has. GoTrue's message is never stored or rendered: it is
+ * untrusted network text and can contain the address.
+ */
+function linkFailure(error: { code?: string; message?: string } | null): AuthLinkError {
+  const code = error?.code ?? "";
+  const message = error?.message ?? "";
+  return code === "otp_expired" || /expired/i.test(message)
+    ? "expired"
+    : "invalid";
+}
+
+function failEmailLink(error: AuthLinkError): EmailLinkOutcome {
+  emit({
+    error: null,
+    confirmationError: error,
+    emailLinkAuthenticated: false,
+    emailLinkVerifying: false,
+    emailLinkAttempted: true,
+  });
+  return { ok: false, error };
+}
+
+/**
+ * Reports a confirmation link that could not even be parsed. It still earns an
+ * explanation on screen, but it can never earn the entry gate's proof.
+ */
+export function reportEmailLinkFailure(error: AuthLinkError = "invalid"): void {
+  if (!isCloudEnabled()) return;
+  start();
+  failEmailLink(error);
+}
+
+/**
+ * Exchanges an emailed token hash for a session.
+ *
+ * This is the native half of the flow: an App Link is verified here, in place,
+ * so the token never becomes a WebView navigation. The input is checked again
+ * at this boundary even though every caller parses it first. On success the
+ * session's own auth event publishes it; awaiting that adoption lets the
+ * caller render the destination with the account already settled. On failure
+ * only the translated reason is kept, and the entry gate stays closed.
+ *
+ * `emailLinkAuthenticated` is set only after Supabase accepts the token. A
+ * restored session seen during the exchange is therefore treated as an
+ * ordinary session and its armed reminders are cancelled, not adopted; the
+ * verified account's plan is reconciled once the app opens.
+ */
+export async function verifyEmailLinkToken(
+  link: TokenHashLink,
+): Promise<EmailLinkOutcome> {
+  if (!isCloudEnabled()) return { ok: false, error: "invalid" };
+  if (!isTokenHashLink(link)) {
+    start();
+    return failEmailLink("invalid");
+  }
+
+  // The subscription and session read exist before the exchange, so the
+  // session Supabase publishes has somewhere to land.
+  start();
+  confirmationLinkToken = null;
+  emit({
+    error: null,
+    confirmationError: null,
+    emailLinkAuthenticated: false,
+    emailLinkVerifying: true,
+    emailLinkAttempted: true,
+  });
+
+  const supabase = getSupabase();
+  if (!supabase) return failEmailLink("invalid");
+
+  let outcome: EmailLinkOutcome;
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({
+      token_hash: link.tokenHash,
+      type: link.type,
+    });
+    if (error || !data.session) {
+      return failEmailLink(linkFailure(error));
+    }
+
+    // Supabase has already announced this session. Awaiting the same adoption
+    // is idempotent and makes success mean "the account is ready", not merely
+    // "the network call returned".
+    await adoptSession(data.session);
+
+    writePendingConfirmation(false);
+    emit({
+      emailLinkAuthenticated: true,
+      emailLinkVerifying: false,
+      confirmationError: null,
+      needsEmailConfirmation: false,
+      pendingEmail: null,
+      ...(link.type === "recovery" ? { passwordResetReady: true } : {}),
+    });
+    outcome = { ok: true, type: link.type };
+  } catch {
+    // A thrown fetch or storage failure is not evidence that the token was
+    // good, so the gate stays closed and the user sees the ordinary failure.
+    outcome = failEmailLink("invalid");
+  }
+  return outcome;
+}
+
 function subscribe(listener: () => void) {
   start();
   listeners.add(listener);
@@ -899,9 +1032,12 @@ export function useAuth(): UseAuth {
         // resolver prefers a configured public origin and never lets a
         // production build email a localhost address.
         options: {
+          // The confirmation route owns both link styles: a token hash for the
+          // email template, and the implicit fragment if the project is still
+          // on Supabase's default template.
           emailRedirectTo: authRedirectUrl(
             window.location.origin,
-            window.location.pathname,
+            AUTH_CONFIRM_PATH,
           ),
         },
       });
@@ -950,7 +1086,7 @@ export function useAuth(): UseAuth {
         options: {
           emailRedirectTo: authRedirectUrl(
             window.location.origin,
-            window.location.pathname,
+            AUTH_CONFIRM_PATH,
           ),
         },
       });
@@ -979,7 +1115,7 @@ export function useAuth(): UseAuth {
       {
         redirectTo: authRedirectUrl(
           window.location.origin,
-          window.location.pathname,
+          AUTH_CONFIRM_PATH,
         ),
       },
     );
@@ -1052,6 +1188,8 @@ export function useAuth(): UseAuth {
       pendingEmail: null,
       confirmationError: null,
       emailLinkAuthenticated: false,
+      emailLinkVerifying: false,
+      emailLinkAttempted: false,
       passwordResetReady: false,
     });
 
@@ -1134,6 +1272,8 @@ export function useAuth(): UseAuth {
     pendingEmail: session.pendingEmail,
     confirmationError: session.confirmationError,
     emailLinkAuthenticated: session.emailLinkAuthenticated,
+    emailLinkVerifying: session.emailLinkVerifying,
+    emailLinkAttempted: session.emailLinkAttempted,
     passwordResetReady: session.passwordResetReady,
     signIn,
     signUp,

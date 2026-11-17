@@ -518,6 +518,7 @@ export const ig: Dict = {
   "auth.passwordUpdated": "Emelitere okwuntughe. Ị banyela.",
   "auth.recoveryEndedTitle": "Njikọ tọghata okwuntughe agwụla",
   "auth.recoveryEndedBody": "Banye ọzọ, ma ọ bụ rịọ njikọ ọhụrụ.",
+  "auth.confirmLinkWorking": "Na-enyocha njikọ gị…",
   "auth.confirmLinkTitle": "Njikọ nkwenye ahụ arụghị ọrụ",
   "auth.confirmLinkExpiredBody":
     "Njikọ a emeela agadi ma ọ bụ e jirila ya. Banye, ma ọ bụ rịọ njikọ ọhụrụ site na ibe nbanye.",
