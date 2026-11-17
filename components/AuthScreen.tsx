@@ -8,15 +8,26 @@
  * the pattern that makes an app feel like a website.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { Avatar } from "./Avatar";
+import { CropSheet } from "./CropSheet";
 import { Icon } from "./Icons";
 import { Logo } from "./Logo";
 import { Notice } from "./ui";
-import type { Translate } from "@/lib/i18n";
+import { AvatarProblem, readAvatar } from "@/lib/avatar";
+import type { Locale, Translate } from "@/lib/i18n";
+import { saveRegistrationProfile } from "@/lib/registrationProfile";
 import type { UseAuth } from "@/lib/useAuth";
 
 type Mode = "welcome" | "sign-in" | "sign-up" | "forgot" | "new-password";
+
+/** What the screen just completed, where the caller needs to tell them apart. */
+export type AuthOutcome =
+  | "signed-in"
+  | "confirmation-pending"
+  | "password-reset-sent"
+  | "password-updated";
 
 export function AuthScreen({
   t,
@@ -25,6 +36,8 @@ export function AuthScreen({
   onDone,
   onSignOut,
   initialMode = "sign-in",
+  forceEntry = false,
+  locale,
 }: {
   t: Translate;
   auth: UseAuth;
@@ -34,12 +47,25 @@ export function AuthScreen({
    * so there is no control that can leave authentication.
    */
   onClose?: () => void;
-  onDone: (message: string) => void;
+  onDone: (message: string, outcome?: AuthOutcome) => void;
   initialMode?: Mode;
+  /** The entry flow's language, carried into a new account's first run. */
+  locale?: Locale;
+  /**
+   * The entry flow renders this screen even when a session was restored, so
+   * the signed-in summary must not replace the welcome choice. The session is
+   * still offered, explicitly, as "Continue as …".
+   */
+  forceEntry?: boolean;
 }) {
   const [manualMode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [avatarDraft, setAvatarDraft] = useState("");
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
@@ -57,6 +83,50 @@ export function AuthScreen({
      `mode` keeps every mode comparison below, and the submit handler, correct
      without special-casing. */
   const mode: Mode = auth.passwordResetReady ? "new-password" : manualMode;
+
+  useEffect(
+    () => () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    },
+    [],
+  );
+
+  function closeCrop() {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setCropSrc(null);
+  }
+
+  function pickPhoto(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    // Allow the same file to be picked again after a cancel or a failure.
+    input.value = "";
+    if (!file) return;
+    closeCrop();
+    const objectUrl = URL.createObjectURL(file);
+    objectUrlRef.current = objectUrl;
+    setCropSrc(objectUrl);
+    setPhotoError(null);
+  }
+
+  async function cropAvatar(blob: Blob) {
+    closeCrop();
+    try {
+      setAvatarDraft(await readAvatar(blob));
+      setPhotoError(null);
+    } catch (error) {
+      const reason = error instanceof AvatarProblem ? error.reason : "could-not-read";
+      setPhotoError(
+        reason === "too-large"
+          ? t("prof.photoTooLarge")
+          : reason === "not-an-image"
+            ? t("prof.photoNotImage")
+            : t("prof.photoFailed"),
+      );
+    }
+  }
 
   /* A recovery session can end while this form is open: the link expires or
      the user signs out elsewhere. The flag survives that, so without a notice
@@ -167,8 +237,10 @@ export function AuthScreen({
 
   /* A recovery link signs the user in, so this must not claim they are done.
      Without the second condition the recovery session renders the signed-in
-     panel and the new-password form is unreachable. */
-  if (auth.status === "signed-in" && !auth.passwordResetReady) {
+     panel and the new-password form is unreachable. During the mandatory entry
+     flow a restored session must still see the welcome choice, so the summary
+     is skipped there too. */
+  if (auth.status === "signed-in" && !auth.passwordResetReady && !forceEntry) {
     return (
       <div className="stack">
         <div className="card">
@@ -224,6 +296,9 @@ export function AuthScreen({
           <div style={{ marginTop: "1rem" }}>{pendingNotice}</div>
         ) : null}
         <div className="stack" style={{ marginTop: "1.5rem" }}>
+          <p className="card-meta" style={{ marginBottom: "0.25rem" }}>
+            {t("auth.newToLivanta")}
+          </p>
           <button
             className="btn btn--primary btn--lg btn--block"
             onClick={() => {
@@ -233,6 +308,9 @@ export function AuthScreen({
           >
             {t("auth.signUpTitle")}
           </button>
+          <p className="card-meta" style={{ margin: "0.5rem 0 0.25rem" }}>
+            {t("auth.alreadyHaveAccount")}
+          </p>
           <button
             className="btn btn--secondary btn--lg btn--block"
             onClick={() => {
@@ -258,7 +336,7 @@ export function AuthScreen({
       setBusy(false);
       if (ok) {
         setSent(true);
-        onDone(t("auth.resetSent"));
+        onDone(t("auth.resetSent"), "password-reset-sent");
       }
       return;
     }
@@ -271,7 +349,7 @@ export function AuthScreen({
       if (ok) {
         setPassword("");
         setMode("sign-in");
-        onDone(t("auth.passwordUpdated"));
+        onDone(t("auth.passwordUpdated"), "password-updated");
       }
       return;
     }
@@ -286,7 +364,7 @@ export function AuthScreen({
         setPassword("");
         return;
       }
-      onDone(t("auth.signedInToast"));
+      onDone(t("auth.signedInToast"), "signed-in");
       return;
     }
 
@@ -295,15 +373,37 @@ export function AuthScreen({
        before submission, which is exactly how a sign-up awaiting confirmation
        used to claim the user was signed in. */
     const outcome = await auth.signUp(email, password);
-    setBusy(false);
     if (!outcome.ok) {
+      setBusy(false);
       setPassword("");
       return;
     }
+
+    /* Saved only when Supabase returned both an id and an identity. The
+       empty-identity response for an existing address is not proof of a new
+       account, so it gets no local profile write. */
+    let profileSaved = true;
+    if (outcome.newAccount && outcome.userId) {
+      profileSaved = await saveRegistrationProfile(outcome.userId, {
+        displayName: firstName,
+        avatar: avatarDraft,
+        locale,
+      });
+    }
+    setBusy(false);
+    setFirstName("");
+    setAvatarDraft("");
+    setPhotoError(null);
+
     onDone(
       outcome.needsEmailConfirmation
-        ? t("auth.checkEmail")
-        : t("auth.signedUpToast"),
+        ? profileSaved
+          ? t("auth.checkEmail")
+          : t("auth.checkEmailProfileFailed")
+        : profileSaved
+          ? t("auth.signedUpToast")
+          : t("auth.signedUpProfileFailed"),
+      outcome.needsEmailConfirmation ? "confirmation-pending" : "signed-in",
     );
   }
 
@@ -342,6 +442,18 @@ export function AuthScreen({
         <div style={{ marginBottom: "0.875rem" }}>{pendingNotice}</div>
       ) : null}
 
+      {mode === "sign-in" && forceEntry && auth.status === "signed-in" && !auth.passwordResetReady && auth.user?.email ? (
+        <div style={{ marginBottom: "0.875rem" }}>
+          <button
+            type="button"
+            className="btn btn--soft btn--block"
+            onClick={() => onDone(t("auth.signedInToast"), "signed-in")}
+          >
+            {t("auth.continueAs", { email: auth.user.email })}
+          </button>
+        </div>
+      ) : null}
+
       <form onSubmit={submit}>
         {recoveryEnded ? (
           <div style={{ marginBottom: "0.875rem" }}>
@@ -350,6 +462,21 @@ export function AuthScreen({
               <br />
               {t("auth.recoveryEndedBody")}
             </Notice>
+          </div>
+        ) : null}
+
+        {mode === "sign-up" ? (
+          <div className="field">
+            <label htmlFor="a-first-name">{t("auth.firstName")}</label>
+            <input
+              id="a-first-name"
+              type="text"
+              autoComplete="given-name"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder={t("auth.firstNamePlaceholder")}
+            />
+            <p className="hint">{t("auth.firstNameHint")}</p>
           </div>
         ) : null}
 
@@ -394,6 +521,48 @@ export function AuthScreen({
             </div>
             {mode === "sign-up" ? (
               <p className="hint">{t("auth.passwordHint")}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {mode === "sign-up" ? (
+          <div className="field">
+            <span className="section-label">{t("auth.photo")}</span>
+            <div className="rowline" style={{ marginTop: "0.5rem", alignItems: "center" }}>
+              <label className="avatar-edit">
+                <Avatar name={firstName} src={avatarDraft} large />
+                <span className="avatar-edit__badge">
+                  <Icon name="camera" size={15} />
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  disabled={busy}
+                  onChange={(e) => pickPhoto(e.currentTarget)}
+                />
+                <span className="sr-only">
+                  {avatarDraft ? t("prof.changePhoto") : t("auth.addPhoto")}
+                </span>
+              </label>
+              <div className="listrow__body">
+                <p className="card-meta">{avatarDraft ? t("auth.photoReady") : t("auth.photoHint")}</p>
+                {avatarDraft ? (
+                  <button
+                    type="button"
+                    className="linkbtn"
+                    style={{ marginTop: "0.25rem" }}
+                    onClick={() => setAvatarDraft("")}
+                  >
+                    {t("prof.removePhoto")}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {photoError ? (
+              <p className="hint" style={{ color: "var(--danger)" }}>
+                {photoError}
+              </p>
             ) : null}
           </div>
         ) : null}
@@ -544,6 +713,14 @@ export function AuthScreen({
       </div>
 
       </form>
+
+      {cropSrc ? (
+        <CropSheet
+          src={cropSrc}
+          onCancel={closeCrop}
+          onCrop={(blob) => void cropAvatar(blob)}
+        />
+      ) : null}
 
       <p className="card-meta" style={{ marginTop: "1rem", textAlign: "center" }}>
         {t("sync.offline")}

@@ -68,9 +68,17 @@ export function greetingKey(part: DayPart): "app.greeting.morning" | "app.greeti
 }
 
 /**
+ * The first word of a saved display name, for the greeting. An empty name stays
+ * empty so `greetingKeyFor` picks the nameless form rather than inventing one.
+ */
+export function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? "";
+}
+
+/**
  * The greeting key that fits the reader: with a name when one is set, and the
- * nameless form otherwise. Onboarding no longer asks for a name, so a fresh
- * install greets by the clock rather than inventing one.
+ * nameless form otherwise. A profile from before names were captured, or one
+ * the user deliberately cleared, still greets by the clock.
  */
 export function greetingKeyFor(
   part: DayPart,

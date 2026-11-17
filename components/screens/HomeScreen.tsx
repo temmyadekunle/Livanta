@@ -1,5 +1,6 @@
 "use client";
 
+import { Avatar } from "../Avatar";
 import { Icon } from "../Icons";
 import { EmptyState, IconTile } from "../ui";
 import { alertTone, dueMeta, TONE_CLASS } from "../labels";
@@ -8,7 +9,7 @@ import { TINT_SOFT, tint } from "@/lib/color";
 import { QUICK_TYPES } from "../QuickAdd";
 import { formatNaira } from "@/lib/i18n";
 import { hasAmount } from "@/lib/money";
-import { greetingKeyFor, useDayPart } from "@/lib/useDayPart";
+import { firstName, greetingKeyFor, useDayPart } from "@/lib/useDayPart";
 import type { Alert, Priority, Thing } from "@/lib/types";
 import type { DayDiff } from "@/lib/risk";
 import type { useLivanta } from "@/lib/useLivanta";
@@ -218,17 +219,18 @@ export function HomeScreen({
 function Hero({ desk }: { desk: Desk }) {
   const { t } = desk;
   const name = desk.settings.displayName;
+  const greetingName = firstName(name);
   // Subscribed rather than read once, so an app left open across lunchtime
   // stops saying "Good morning" without needing to be closed and reopened.
   const part = useDayPart();
   return (
     <div className="hero">
       <div className="hero__top">
-        <span className="appbar__brand" style={{ color: "rgba(255,255,255,0.85)" }}>
-          Livanta
-        </span>
+        <Avatar name={name} src={desk.settings.avatar} />
       </div>
-      <p className="hero__greet">{t(greetingKeyFor(part, name), { name })}</p>
+      <p className="hero__greet">
+        {t(greetingKeyFor(part, greetingName), { name: greetingName })}
+      </p>
       <p className="hero__line">
         {desk.loading ? t("app.loading") : t("home.heroLine")}
       </p>

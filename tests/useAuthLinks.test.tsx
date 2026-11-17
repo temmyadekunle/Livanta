@@ -118,7 +118,10 @@ function fakeClient(
         return {
           data: {
             session: null,
-            user: outcomes.signUpUser ?? { id: "new-user" },
+            user: outcomes.signUpUser ?? {
+              id: "new-user",
+              identities: [{ provider: "email" }],
+            },
           },
           error: null,
         };
@@ -246,7 +249,12 @@ test("sign-up, reset and OAuth all return to the origin that submitted the form"
   await act(async () => {
     signUpOutcome = await view.auth.signUp("new@example.com", "secret123");
   });
-  assert.deepEqual(signUpOutcome, { ok: true, needsEmailConfirmation: true });
+  assert.deepEqual(signUpOutcome, {
+    ok: true,
+    needsEmailConfirmation: true,
+    userId: "new-user",
+    newAccount: true,
+  });
   assert.equal(capture.signUp?.email, "new@example.com");
   assert.equal(
     capture.signUp?.options?.emailRedirectTo,
@@ -542,8 +550,18 @@ test("signing up again for the same pending address stays on the prompt", async 
   await act(async () => {
     second = await view.auth.signUp("same@example.com", "secret123");
   });
-  assert.deepEqual(first, { ok: true, needsEmailConfirmation: true });
-  assert.deepEqual(second, { ok: true, needsEmailConfirmation: true });
+  assert.deepEqual(first, {
+    ok: true,
+    needsEmailConfirmation: true,
+    userId: "existing-user",
+    newAccount: false,
+  });
+  assert.deepEqual(second, {
+    ok: true,
+    needsEmailConfirmation: true,
+    userId: "existing-user",
+    newAccount: false,
+  });
   assert.equal(view.auth.error, null, "an existing account is not an error");
   assert.equal(view.auth.pendingEmail, "same@example.com");
 

@@ -21,6 +21,7 @@ const stubAuth = (overrides: Partial<UseAuth> = {}): UseAuth => ({
   needsEmailConfirmation: false,
   passwordResetReady: false,
   confirmationError: null,
+  emailLinkAuthenticated: false,
   clearConfirmationError: () => {},
   pendingEmail: null,
   resendConfirmation: async () => ({ ok: true as const }),

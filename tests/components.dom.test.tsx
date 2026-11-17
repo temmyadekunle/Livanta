@@ -39,6 +39,7 @@ const { createRoot } = await import("react-dom/client");
 
 const { default: Onboarding } = await import("../components/Onboarding.tsx");
 const { AuthScreen } = await import("../components/AuthScreen.tsx");
+const { Avatar } = await import("../components/Avatar.tsx");
 const { QuickAddSheet } = await import("../components/QuickAdd.tsx");
 const { ThingsScreen } = await import("../components/screens/ThingsScreen.tsx");
 const { CalendarScreen } = await import("../components/screens/CalendarScreen.tsx");
@@ -116,6 +117,7 @@ function pendingAuth(overrides: Partial<UseAuth> = {}): UseAuth {
     pendingEmail: "new@example.com",
     passwordResetReady: false,
     confirmationError: null,
+    emailLinkAuthenticated: false,
     clearConfirmationError: () => {},
     signIn: async () => true,
     signUp: async () => ({ ok: true, needsEmailConfirmation: true }),
@@ -441,6 +443,7 @@ test("AuthScreen welcome mode continues into create account and sign in", async 
     needsEmailConfirmation: false,
     passwordResetReady: false,
     confirmationError: null,
+    emailLinkAuthenticated: false,
     clearConfirmationError: () => {},
     pendingEmail: null,
     resendConfirmation: async () => ({ ok: true as const }),
@@ -598,6 +601,65 @@ test("AuthScreen welcome mode continues into create account and sign in", async 
   });
 });
 
+test("sign-up offers optional name and photo without requiring them", () => {
+  const view = render(
+    <AuthScreen
+      t={makeT("en")}
+      auth={pendingAuth({ needsEmailConfirmation: false, pendingEmail: null })}
+      initialMode="sign-up"
+      onClose={() => {}}
+      onDone={() => {}}
+    />,
+  );
+
+  assert.ok(view.container.querySelector("#a-first-name"));
+  assert.ok(view.container.querySelector('input[type="file"]'));
+  assert.ok(view.text().includes(en["auth.firstName"]));
+  assert.ok(view.text().includes(en["auth.photo"]));
+
+  const submit = view.container.querySelector('button[type="submit"]') as
+    | HTMLButtonElement
+    | null;
+  if (!submit) throw new Error("sign-up submit missing");
+  assert.equal(submit.disabled, true, "empty email and password still block submit");
+  view.setInput("#a-email", "new@example.com");
+  view.setInput("#a-password", "secret123");
+  assert.equal(
+    submit.disabled,
+    false,
+    "name and photo are optional, so they do not gate account creation",
+  );
+
+  view.unmount();
+});
+
+test("sign-in mode does not show registration-only fields", () => {
+  const view = render(
+    <AuthScreen
+      t={makeT("en")}
+      auth={pendingAuth({ needsEmailConfirmation: false, pendingEmail: null })}
+      initialMode="sign-in"
+      onClose={() => {}}
+      onDone={() => {}}
+    />,
+  );
+
+  assert.equal(view.container.querySelector("#a-first-name"), null);
+  assert.equal(view.container.querySelector('input[type="file"]'), null);
+  view.unmount();
+});
+
+test("Avatar falls back to a neutral silhouette, never the brand name", () => {
+  const empty = render(<Avatar name="" />);
+  assert.equal(empty.text().includes("Livanta"), false);
+  assert.ok(empty.container.querySelector("svg"), "a neutral icon is shown");
+  empty.unmount();
+
+  const named = render(<Avatar name="Temmy Adekunle" />);
+  assert.equal(named.text(), "TA");
+  named.unmount();
+});
+
 test("sign-up requiring confirmation never claims the user is signed in", async () => {
   const authStub = (overrides: Partial<UseAuth> = {}): UseAuth => ({
     enabled: true,
@@ -607,6 +669,7 @@ test("sign-up requiring confirmation never claims the user is signed in", async 
     needsEmailConfirmation: false,
     passwordResetReady: false,
     confirmationError: null,
+    emailLinkAuthenticated: false,
     clearConfirmationError: () => {},
     pendingEmail: null,
     resendConfirmation: async () => ({ ok: true as const }),
@@ -774,6 +837,7 @@ test("an expired recovery session explains itself and offers sign-in", () => {
     needsEmailConfirmation: false,
     passwordResetReady: true,
     confirmationError: null,
+    emailLinkAuthenticated: false,
     clearConfirmationError: () => {},
     pendingEmail: null,
     resendConfirmation: async () => ({ ok: true as const }),

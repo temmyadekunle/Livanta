@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * The first-time introduction: three presentation-only screens shown before
- * the authentication welcome. It reads and writes no account or device data;
- * completing it is handled by the caller, which writes the device-level
- * `livanta.intro.v1` marker.
+ * The mandatory introduction: three presentation-only screens shown on every
+ * launch before the authentication welcome. It reads and writes no account or
+ * device data; the language choice is the entry flow's own preference, and
+ * completing the slides is handled by the caller (see lib/entryGate.ts).
  */
 
 import { useId, useState } from "react";
@@ -12,10 +12,13 @@ import { useId, useState } from "react";
 import { BrandPanel } from "./BrandArt";
 import { Icon, type IconName } from "./Icons";
 import { Logo } from "./Logo";
+import { LocalePicker } from "./Onboarding";
+import type { Locale, Translate } from "@/lib/i18n";
+import type { TKey } from "@/lib/locales/en";
 
 interface Slide {
-  readonly title: string;
-  readonly body: string;
+  readonly titleKey: TKey;
+  readonly bodyKey: TKey;
   readonly art: "adire" | "chevron";
   readonly lead: IconName;
   readonly icons: readonly IconName[];
@@ -23,36 +26,46 @@ interface Slide {
 
 const SLIDES: readonly Slide[] = [
   {
-    title: "Welcome to Livanta",
-    body: "Your personal life-management companion.",
+    titleKey: "intro.welcomeTitle",
+    bodyKey: "intro.welcomeBody",
     art: "adire",
     lead: "layers",
     icons: ["calendar", "checkCircle"],
   },
   {
-    title: "Stay Organised",
-    body: "Manage bills, reminders, important dates, vehicle schedules and documents.",
+    titleKey: "intro.organisedTitle",
+    bodyKey: "intro.organisedBody",
     art: "chevron",
     lead: "receipt",
     icons: ["bell", "calendar", "car", "file"],
   },
   {
-    title: "Your Life, Under Control",
-    body: "Simple, privacy-conscious and offline-first organisation.",
+    titleKey: "intro.controlTitle",
+    bodyKey: "intro.controlBody",
     art: "adire",
     lead: "shieldCheck",
     icons: ["lock", "cloudOff", "checkCircle"],
   },
 ];
 
-export function Introduction({ onComplete }: { onComplete: () => void }) {
+export function Introduction({
+  t,
+  locale,
+  onLocale,
+  onComplete,
+}: {
+  t: Translate;
+  locale: Locale;
+  onLocale: (locale: Locale) => void;
+  onComplete: () => void;
+}) {
   const [step, setStep] = useState(0);
   const titleId = useId();
   const slide = SLIDES[step];
   const last = step === SLIDES.length - 1;
 
   return (
-    <main className="intro" aria-labelledby={titleId}>
+    <main className="intro" aria-labelledby={titleId} lang={locale}>
       <div className="intro__col">
         <div className="intro__brand">
           <Logo variant="wordmark" priority />
@@ -76,19 +89,26 @@ export function Introduction({ onComplete }: { onComplete: () => void }) {
             </BrandPanel>
 
             <h1 className="intro__title" id={titleId}>
-              {slide.title}
+              {t(slide.titleKey)}
             </h1>
-            <p className="intro__body">{slide.body}</p>
+            <p className="intro__body">{t(slide.bodyKey)}</p>
           </div>
         </div>
 
+        {step === 0 ? (
+          <div className="field" style={{ marginTop: "0.875rem" }}>
+            <span>{t("ob.language")}</span>
+            <LocalePicker locale={locale} onChange={onLocale} t={t} />
+          </div>
+        ) : null}
+
         <p className="sr-only">
-          Step {step + 1} of {SLIDES.length}
+          {t("intro.step", { current: step + 1, total: SLIDES.length })}
         </p>
         <div className="intro__dots ob-steps" role="presentation">
           {SLIDES.map((s, i) => (
             <span
-              key={s.title}
+              key={s.titleKey}
               className={i === step ? "ob-step ob-step--on" : "ob-step"}
             />
           ))}
@@ -100,7 +120,7 @@ export function Introduction({ onComplete }: { onComplete: () => void }) {
             className="btn btn--primary btn--lg btn--block"
             onClick={last ? onComplete : () => setStep(step + 1)}
           >
-            {last ? "Get started" : "Continue"}
+            {last ? t("intro.getStarted") : t("intro.continue")}
             <Icon name="arrowRight" size={18} />
           </button>
           {step > 0 ? (
@@ -109,7 +129,7 @@ export function Introduction({ onComplete }: { onComplete: () => void }) {
               className="btn btn--ghost btn--block"
               onClick={() => setStep(step - 1)}
             >
-              Back
+              {t("intro.back")}
             </button>
           ) : null}
         </div>

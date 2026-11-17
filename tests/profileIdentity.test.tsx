@@ -39,6 +39,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 
 const { ProfileScreen } = await import("../components/screens/ProfileScreen.tsx");
+const { en } = await import("../lib/locales/en.ts");
 const { useLivanta } = await import("../lib/useLivanta.ts");
 const { createLocalStore, userScope } = await import("../lib/db.ts");
 const { DEFAULT_SETTINGS, saveSettings } = await import("../lib/settings.ts");
@@ -68,6 +69,7 @@ function authFor(email: string): UseAuth {
     error: null,
     needsEmailConfirmation: false,
     confirmationError: null,
+    emailLinkAuthenticated: false,
     clearConfirmationError: () => {},
     pendingEmail: null,
     resendConfirmation: async () => ({ ok: true as const }),
@@ -92,6 +94,7 @@ interface Props {
   store: LocalStore;
   userId: string;
   auth: UseAuth;
+  onSignOut?: () => Promise<void>;
 }
 
 function mountProfile(initial: Props) {
@@ -99,7 +102,7 @@ function mountProfile(initial: Props) {
   win.document.body.appendChild(container);
   const root = createRoot(container as unknown as Element);
 
-  function Probe({ store, userId, auth }: Props): ReactElement {
+  function Probe({ store, userId, auth, onSignOut }: Props): ReactElement {
     const desk = useLivanta(store, userId);
     return (
       <ProfileScreen
@@ -108,6 +111,7 @@ function mountProfile(initial: Props) {
         sync={SYNC}
         onOpenAuth={() => {}}
         onOpenConfirmDeleteAll={() => {}}
+        onSignOut={onSignOut}
         showToast={() => {}}
       />
     );
@@ -116,6 +120,7 @@ function mountProfile(initial: Props) {
   act(() => root.render(<Probe {...initial} />));
 
   return {
+    container: container as unknown as Element,
     text: () => container.textContent ?? "",
     render(next: Props) {
       act(() => root.render(<Probe {...next} />));
@@ -202,5 +207,44 @@ test("the profile shows the live account's name and address, not the previous ac
   } finally {
     await storeA.close();
     await storeB.close();
+  }
+});
+
+test("the signed-in account section exposes sign-out", async () => {
+  const store = createLocalStore(userScope(A_ID));
+  try {
+    await saveSettings(store, {
+      ...DEFAULT_SETTINGS,
+      onboarded: true,
+      displayName: "Adaeze",
+    });
+    let signOuts = 0;
+    const view = mountProfile({
+      store,
+      userId: A_ID,
+      auth: authFor("ada@example.com"),
+      onSignOut: async () => {
+        signOuts += 1;
+      },
+    });
+    await waitFor(
+      () => view.text().includes(en["account.signOut"]),
+      "the account sign-out control",
+      view.text,
+    );
+    const button = Array.from(view.container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.includes(en["account.signOut"]),
+    );
+    if (!button) throw new Error("sign-out button missing");
+    act(() => {
+      button.click();
+    });
+    await act(async () => {
+      await delay(0);
+    });
+    assert.equal(signOuts, 1);
+    view.unmount();
+  } finally {
+    await store.close();
   }
 });

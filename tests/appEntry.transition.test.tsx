@@ -49,7 +49,7 @@ const { default: AppEntry } = await import("../components/AppEntry.tsx");
 const { getAccountTransitionCoordinator, resetAccountTransitionForTesting } =
   await import("../lib/accountTransition.ts");
 const { en } = await import("../lib/locales/en.ts");
-const { markIntroductionCompleted } = await import("../lib/introduction.ts");
+const { resetEntryGateForTesting } = await import("../lib/entryGate.ts");
 const { resetAuthForTesting } = await import("../lib/useAuth.ts");
 const { setSupabaseForTesting } = await import("../lib/supabase/client.ts");
 const { setLockManager } = await import("../lib/identityLock.ts");
@@ -282,6 +282,11 @@ function workingLocks() {
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** Stands in for a launch that already completed the introduction and choice. */
+function passEntryFlow(): void {
+  resetEntryGateForTesting({ introDone: true, choiceDone: true });
+}
+
 async function waitUntil(
   check: () => boolean,
   label: string,
@@ -379,7 +384,9 @@ test.beforeEach(async () => {
   setSupabaseForTesting(client as unknown as import("@supabase/supabase-js").SupabaseClient);
   setReminderAdapterForTesting(adapter);
   setLockManager(locks);
-  markIntroductionCompleted();
+  // These tests are about teardown, not the entry flow, so the introduction and
+  // the authentication choice are already behind us for every launch.
+  passEntryFlow();
 });
 
 test.afterEach(async () => {
@@ -456,6 +463,8 @@ async function restart(): Promise<void> {
   resetIdentityChannelForTesting();
   setReminderAdapterForTesting(adapter);
   setLockManager(locks);
+  // A reload starts the entry flow again; these tests only need it behind us.
+  passEntryFlow();
 }
 
 /** Writes an `active` marker for `userId`, as a previous launch would leave it. */

@@ -108,8 +108,44 @@ test("a signed-in user reaches the desk only once it is ready and onboarded", ()
   assert.deepEqual(resolveAppSurface(signedIn), { kind: "app" });
 });
 
-test("a build without cloud auth keeps the offline flow", () => {
-  const offline: AppSurfaceInput = {
+test("a restored session cannot skip this launch's authentication choice", () => {
+  const signedIn: AppSurfaceInput = { ...signedOut, authStatus: "signed-in" };
+
+  assert.deepEqual(resolveAppSurface({ ...signedIn, entryChoicePending: true }), {
+    kind: "auth-gate",
+  });
+  // Even a device that never finished onboarding must make the choice first.
+  assert.deepEqual(
+    resolveAppSurface({ ...signedIn, entryChoicePending: true, onboarded: false }),
+    { kind: "auth-gate" },
+  );
+  // Making the choice releases the same session to the app.
+  assert.deepEqual(
+    resolveAppSurface({ ...signedIn, entryChoicePending: false }),
+    { kind: "app" },
+  );
+  // Arriving through a recovery link is itself proof of the identity.
+  assert.deepEqual(
+    resolveAppSurface({
+      ...signedIn,
+      entryChoicePending: true,
+      passwordResetReady: true,
+    }),
+    { kind: "recovery" },
+  );
+  // The choice is an auth-enabled concept; offline builds are unaffected.
+  assert.deepEqual(
+    resolveAppSurface({
+      ...signedIn,
+      authEnabled: false,
+      authStatus: "disabled",
+      entryChoicePending: true,
+    }),
+    { kind: "app" },
+  );
+});
+
+test("a build without cloud auth keeps the offline flow", () => {  const offline: AppSurfaceInput = {
     ...signedOut,
     authEnabled: false,
     authStatus: "disabled",

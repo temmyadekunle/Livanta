@@ -120,7 +120,7 @@ export function ProfileScreen({
                 no extra handlers and no focus juggling. The input itself is
                 hidden but not display:none, or it would be unreachable. */}
             <label className="avatar-edit">
-              <Avatar name={name || t("app.brand")} src={desk.settings.avatar} large />
+              <Avatar name={name} src={desk.settings.avatar} large />
               <span className="avatar-edit__badge">
                 <Icon name="camera" size={15} />
               </span>
@@ -211,12 +211,24 @@ export function ProfileScreen({
             </span>
           </button>
           {auth.status === "signed-in" ? (
-            <p className="card-meta" style={{ margin: "0.5rem 0 0" }}>
-              {syncLabel(t, sync)}
-              {!sync.suspended && sync.lastResult && sync.lastResult.at
-                ? ` · ${t("sync.lastSynced", { time: formatTime(sync.lastResult.at) })}`
-                : ""}
-            </p>
+            <>
+              <p className="card-meta" style={{ margin: "0.5rem 0 0" }}>
+                {syncLabel(t, sync)}
+                {!sync.suspended && sync.lastResult && sync.lastResult.at
+                  ? ` · ${t("sync.lastSynced", { time: formatTime(sync.lastResult.at) })}`
+                  : ""}
+              </p>
+              {onSignOut ? (
+                <button
+                  className="btn btn--danger btn--block"
+                  style={{ marginTop: "0.75rem" }}
+                  onClick={() => void onSignOut()}
+                >
+                  <Icon name="logOut" size={18} />
+                  {t("account.signOut")}
+                </button>
+              ) : null}
+            </>
           ) : null}
         </section>
       ) : (

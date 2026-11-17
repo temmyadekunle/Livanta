@@ -25,8 +25,13 @@ import { createSessionAttempts, withTimeout } from "./sessionTimeout.ts";
 import { performSignOut } from "./signOut.ts";
 import { readSessionOwner } from "./sessionAuthority.ts";
 import { authRedirectUrl } from "./authRedirect.ts";
-import { parseAuthLinkError, type AuthLinkError } from "./authLinkError.ts";
+import {
+  parseAuthLinkError,
+  parseConfirmationLinkAccessToken,
+  type AuthLinkError,
+} from "./authLinkError.ts";
 import { identityTransportKind } from "./identityTransport.ts";
+import { isEntryChoicePending } from "./entryGate.ts";
 import {
   ensureReminderOwner,
   signedOutReminderRecoveryNeeded,
@@ -71,7 +76,17 @@ export type ResendOutcome =
  * which made a confirmation-required sign-up claim the user was signed in.
  */
 export type SignUpOutcome =
-  | { readonly ok: true; readonly needsEmailConfirmation: boolean }
+  | {
+      readonly ok: true;
+      readonly needsEmailConfirmation: boolean;
+      /**
+       * Present when Supabase returned a user object. `newAccount` is true only
+       * when Supabase also returned an identity, which distinguishes a fresh
+       * registration from its deliberately obfuscated existing-email response.
+       */
+      readonly userId?: string;
+      readonly newAccount?: boolean;
+    }
   | { readonly ok: false };
 
 /**
@@ -94,6 +109,14 @@ export interface UseAuth {
    * once at startup. Null when there was no failed link.
    */
   confirmationError: AuthLinkError | null;
+  /**
+   * True when this launch's session came from a successfully exchanged
+   * sign-up confirmation link. Only a session whose access token matches the
+   * link's fragment proves this; a restored or unrelated session never does.
+   * The entry gate uses it to skip this launch's introduction and explicit
+   * account choice without weakening either for ordinary sessions.
+   */
+  emailLinkAuthenticated: boolean;
   /**
    * True when the session in hand came from an emailed recovery link, so the
    * only sensible next step is choosing a new password. See the PASSWORD_RECOVERY
@@ -226,6 +249,7 @@ interface AuthState {
   needsEmailConfirmation: boolean;
   pendingEmail: string | null;
   confirmationError: AuthLinkError | null;
+  emailLinkAuthenticated: boolean;
   passwordResetReady: boolean;
   teardownPending: boolean;
 }
@@ -239,6 +263,7 @@ function initialState(): AuthState {
     needsEmailConfirmation: isCloudEnabled() && readPendingConfirmation(),
     pendingEmail: isCloudEnabled() ? readPendingEmail() : null,
     confirmationError: null,
+    emailLinkAuthenticated: false,
     passwordResetReady: false,
     teardownPending: false,
   };
@@ -247,6 +272,13 @@ function initialState(): AuthState {
 let state: AuthState = initialState();
 const listeners = new Set<() => void>();
 let started = false;
+
+/**
+ * The access token from a confirmation fragment read before supabase-js
+ * consumes the URL. It is compared once, in memory, with the session the
+ * client actually publishes; it is never persisted or exposed.
+ */
+let confirmationLinkToken: string | null = null;
 
 let sessionAttempts = createSessionAttempts();
 
@@ -298,6 +330,7 @@ export function resetAuthForTesting(): void {
   queuedSession = null;
   drainingSessions = null;
   activeUserId = null;
+  confirmationLinkToken = null;
 }
 
 function teardownSucceeded(result: { ok: boolean } | void): boolean {
@@ -508,9 +541,18 @@ async function drainSessionQueue(): Promise<void> {
       // Ownership is established before the account becomes visible, so the
       // native reminders that are still scheduled cannot belong to whoever used
       // this device last. A failure keeps the account queued and the app blocked.
+      //
+      // A launch that has not yet passed the entry choice cancels an armed plan
+      // rather than adopting it. The account is authenticated, but a person
+      // standing at the welcome screen has not chosen it, and notifications
+      // scheduled by an earlier launch would otherwise reveal its records first.
+      // A session exchanged from this launch's confirmation link has passed the
+      // choice: the link is that proof, so its plan is adopted, not cancelled.
       const ownership = await ensureReminderOwner({
         ownerId: next.user.id,
         confirmOwner: readSessionOwner,
+        cancelActivePlan:
+          isEntryChoicePending() && !state.emailLinkAuthenticated,
       });
       if (ownership.status === "changed") {
         // A newer session replaced this one mid-transition. Re-read rather than
@@ -532,6 +574,22 @@ async function drainSessionQueue(): Promise<void> {
   }
 }
 
+/**
+ * Proves that the session the client published is the one the confirmation
+ * fragment carried. Anything else leaves the launch's normal entry flow in
+ * place: a restored session, an unrelated account, or a fragment that failed
+ * to exchange must not satisfy the introduction or account choice.
+ */
+function proveConfirmationLink(session: Session): void {
+  if (confirmationLinkToken === null) return;
+  if (session.access_token !== confirmationLinkToken) {
+    confirmationLinkToken = null;
+    return;
+  }
+  confirmationLinkToken = null;
+  if (!state.emailLinkAuthenticated) emit({ emailLinkAuthenticated: true });
+}
+
 async function adoptSession(session: Session): Promise<void> {
   // An auth event must not publish an account when this tab cannot announce
   // the session to its siblings. Nothing is opened; retry re-checks.
@@ -541,6 +599,7 @@ async function adoptSession(session: Session): Promise<void> {
     return;
   }
 
+  proveConfirmationLink(session);
   queuedSession = session;
   if (drainingSessions) return drainingSessions;
 
@@ -585,7 +644,11 @@ async function endSession(): Promise<void> {
     if (recoveryNeeded) pendingTeardown = reminderOwnershipTeardown(null);
   }
 
-  emit({ user: null, status: "signed-out" });
+  emit({
+    user: null,
+    status: "signed-out",
+    emailLinkAuthenticated: false,
+  });
 
   if (!pendingTeardown || state.teardownPending) return;
   await settlePendingTeardown();
@@ -707,8 +770,16 @@ function start() {
 
   if (!isCloudEnabled()) return;
 
+  // Read both fragments before supabase-js consumes the URL. An error is
+  // cleared and explained; a confirmation token is left in place for the
+  // client's single-use exchange and kept only for the comparison above.
   const linkError = readAndClearAuthLinkError();
   if (linkError) emit({ confirmationError: linkError });
+  if (typeof window !== "undefined") {
+    confirmationLinkToken = parseConfirmationLinkAccessToken(
+      window.location.hash,
+    );
+  }
 
   const supabase = getSupabase();
   if (!supabase) {
@@ -824,8 +895,9 @@ export function useAuth(): UseAuth {
         email: email.trim(),
         password,
         // Without this GoTrue uses the project-wide Site URL, which is wrong
-        // for every environment except the one it was last set to. The origin
-        // that is running the form is the only correct destination.
+        // for every environment except the one it was last set to. The
+        // resolver prefers a configured public origin and never lets a
+        // production build email a localhost address.
         options: {
           emailRedirectTo: authRedirectUrl(
             window.location.origin,
@@ -842,9 +914,21 @@ export function useAuth(): UseAuth {
       // only signal is a toast that disappears before the user can act on it.
       const needsEmailConfirmation = !data.session && Boolean(data.user);
       const pendingEmail = needsEmailConfirmation ? email.trim() : null;
+      /* GoTrue answers a duplicate sign-up with a user whose identities are
+         empty when it does not want to reveal that the address exists. Only a
+         real new registration carries an identity, so only that result may
+         seed a local profile. */
+      const newAccount = Boolean(
+        data.user && Array.isArray(data.user.identities) && data.user.identities.length > 0,
+      );
       writePendingConfirmation(needsEmailConfirmation, pendingEmail ?? undefined);
       emit({ needsEmailConfirmation, pendingEmail });
-      return { ok: true, needsEmailConfirmation };
+      return {
+        ok: true,
+        needsEmailConfirmation,
+        userId: data.user?.id,
+        newAccount,
+      };
     },
     [],
   );
@@ -960,12 +1044,14 @@ export function useAuth(): UseAuth {
     // `teardownPending` is deliberately left alone: an earlier failure stays
     // blocking until settlement actually succeeds.
     activeUserId = null;
+    confirmationLinkToken = null;
     emit({
       user: null,
       status: "signed-out",
       needsEmailConfirmation: false,
       pendingEmail: null,
       confirmationError: null,
+      emailLinkAuthenticated: false,
       passwordResetReady: false,
     });
 
@@ -1047,6 +1133,7 @@ export function useAuth(): UseAuth {
     needsEmailConfirmation: session.needsEmailConfirmation,
     pendingEmail: session.pendingEmail,
     confirmationError: session.confirmationError,
+    emailLinkAuthenticated: session.emailLinkAuthenticated,
     passwordResetReady: session.passwordResetReady,
     signIn,
     signUp,

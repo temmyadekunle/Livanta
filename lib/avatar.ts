@@ -38,23 +38,33 @@ export class AvatarProblem extends Error {
 }
 
 /**
- * The square region to take from a `w` x `h` image.
+ * The square region to take from a `w` x `h` image, and the edge to draw it
+ * at.
  *
- * Centre-cropped, so a portrait selfie is cut evenly rather than from the top,
- * which is where a face usually is but not always. Never upscales: an image
- * already smaller than the cap is left at its own size.
+ * `side` is the largest square that fits inside the image, centred on the
+ * short axis so equal bands come off each side. `edge` is that square scaled
+ * down to the cap: the whole selected area is kept and shrunk as one piece, so
+ * a 1024px photo still shows the portrait its owner framed rather than the
+ * middle 256px of it. Never upscales: an image already smaller than the cap is
+ * left at its own size.
  */
 export function avatarCrop(
   w: number,
   h: number,
   maxEdge: number = AVATAR_MAX_EDGE,
-): { sx: number; sy: number; side: number } {
+): { sx: number; sy: number; side: number; edge: number } {
   /* The largest square that fits *inside* the image, so the crop can never
      start outside it. Using the longer edge instead -- min(max(w, h), cap) --
      would pick a side wider than the image on its short axis and send sy or sx
      negative, which silently draws the wrong region rather than failing. */
-  const side = Math.min(w, h, maxEdge);
-  return { sx: Math.round((w - side) / 2), sy: Math.round((h - side) / 2), side };
+  const side = Math.min(w, h);
+  const edge = Math.min(side, maxEdge);
+  return {
+    sx: Math.round((w - side) / 2),
+    sy: Math.round((h - side) / 2),
+    side,
+    edge,
+  };
 }
 
 /**
@@ -93,14 +103,17 @@ export async function readAvatar(file: File | Blob): Promise<string> {
   }
 
   try {
-    const { sx, sy, side } = avatarCrop(bitmap.width, bitmap.height);
+    const { sx, sy, side, edge } = avatarCrop(bitmap.width, bitmap.height);
     const canvas = document.createElement("canvas");
-    canvas.width = side;
-    canvas.height = side;
+    canvas.width = edge;
+    canvas.height = edge;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new AvatarProblem("could-not-read");
-    ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, side, side);
+    /* Square source into a square canvas: a proportional reduction of exactly
+       what the crop sheet showed. Drawing the same `side` at both ends would
+       sample a cap-sized window instead of resizing the picture. */
+    ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, edge, edge);
 
     // webp first, jpeg as the fallback. Safari gained webp encoding only
     // recently, and toDataURL silently returns a png when it cannot honour the

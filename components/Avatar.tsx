@@ -1,5 +1,6 @@
 import { isAvatarDataUrl } from "@/lib/avatar";
 
+import { Icon } from "./Icons";
 import { initials } from "./labels";
 
 /**
@@ -25,6 +26,7 @@ export function Avatar({
   large?: boolean;
 }) {
   const usable = isAvatarDataUrl(src) ? src : null;
+  const letters = initials(name);
 
   return (
     <span className={large ? "avatar avatar--lg" : "avatar"}>
@@ -33,8 +35,16 @@ export function Avatar({
           optimise and no server for the image optimiser to fetch it through.
           readAvatar has already done the only optimisation that applies here --
           it is a 256px square webp before it ever reaches this line. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      {usable ? <img src={usable} alt="" /> : initials(name)}
+      {usable ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={usable} alt="" />
+      ) : letters ? (
+        letters
+      ) : (
+        /* A neutral silhouette, not the product name, so an account without
+           a photo or a name is never labelled as "Livanta". */
+        <Icon name="user" size={large ? 26 : 18} />
+      )}
     </span>
   );
 }

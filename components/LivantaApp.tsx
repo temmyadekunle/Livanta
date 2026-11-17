@@ -18,7 +18,7 @@ import { CATEGORY_META, KIND_ICON, MODULE_ICON, MODULES, moduleThings, type Modu
 import { TINT_BORDER, TINT_SOFT, tint } from "@/lib/color";
 import { dueMeta, TONE_CLASS } from "./labels";
 import { formatDate } from "@/lib/dates";
-import { formatNaira } from "@/lib/i18n";
+import { formatNaira, makeT, type Locale } from "@/lib/i18n";
 import { hasAmount } from "@/lib/money";
 import {
   deliverOwnerNotification,
@@ -36,7 +36,8 @@ import {
 import { useAccountStore } from "@/lib/useAccountStore";
 import { useAuth } from "@/lib/useAuth";
 import { useCloudSync } from "@/lib/useCloudSync";
-import { greetingKeyFor, useDayPart } from "@/lib/useDayPart";
+import { firstName, greetingKeyFor, useDayPart } from "@/lib/useDayPart";
+import { useEntryGate } from "@/lib/entryGate";
 import { useLivanta } from "@/lib/useLivanta";
 import type { LocalStore } from "@/lib/db.ts";
 import {
@@ -107,6 +108,7 @@ export default function LivantaApp({
   coordinator: AccountTransitionCoordinator;
 }) {
   const auth = useAuth();
+  const gate = useEntryGate();
   const [accountResetToken, setAccountResetToken] = useState(0);
   const account = useAccountStore({
     authEnabled: auth.enabled,
@@ -116,6 +118,14 @@ export default function LivantaApp({
   });
   const desk = useLivanta(account.store, account.expectedUserId);
   const { t, refresh } = desk;
+  /* The entry flow has one language: the one its introduction is showing. Every
+     surface before the app shell uses it, so the welcome and the first-run
+     onboarding do not revert to a different language than the slides just
+     shown. The account's own saved language governs the app once it opens.
+     Auth-disabled builds have no introduction, so they keep the device
+     settings throughout. */
+  const entryLocale: Locale = auth.enabled ? gate.locale : desk.settings.locale;
+  const entryT = useMemo(() => makeT(entryLocale), [entryLocale]);
   const sync = useCloudSync({ dataSaver: desk.settings.dataSaver });
   const { toast, showToast } = useToast();
 
@@ -147,6 +157,14 @@ export default function LivantaApp({
   /* One pure decision owns which surface may render. In particular it has no
      dismissal input and does not consult local storage, so neither an earlier
      dismissal nor browser navigation can weaken it. */
+  // A restored session does not satisfy this launch's authentication choice.
+  // A recovery link does, and so does arriving through this launch's sign-up
+  // confirmation: in both cases the link itself proves the identity.
+  const entryChoicePending =
+    auth.enabled &&
+    !gate.choiceDone &&
+    !auth.passwordResetReady &&
+    !auth.emailLinkAuthenticated;
   const surface = resolveAppSurface({
     ready: desk.ready,
     onboarded: desk.settings.onboarded,
@@ -156,8 +174,15 @@ export default function LivantaApp({
     identityInvalid: account.status === "error",
     teardownPending: auth.teardownPending,
     identityRevoked,
+    entryChoicePending,
   });
   const authSurface = isAuthSurface(surface);
+
+  /* Reminders may only be scheduled or shown while an authenticated account
+     surface owns the screen. A restored session still hydrates its desk behind
+     the welcome, and every auth surface hides that desk; a notification built
+     from it would be the one piece of account data that escaped the gate. */
+  const remindersAllowed = !authSurface && !entryChoicePending;
 
   const push = useCallback((route: Route) => setStack((s) => [...s, route]), []);
   const pop = useCallback(() => setStack((s) => s.slice(0, -1)), []);
@@ -272,7 +297,7 @@ export default function LivantaApp({
   }, [account.store]);
 
   useEffect(() => {
-    if (!desk.ready) return;
+    if (!desk.ready || !remindersAllowed) return;
     const plan = desk.settings.notifyUrgent
       ? planReminders(desk.things, {
           leadDays: desk.settings.leadDays,
@@ -299,10 +324,11 @@ export default function LivantaApp({
     t,
     auth.enabled,
     account.expectedUserId,
+    remindersAllowed,
   ]);
 
   useEffect(() => {
-    if (!desk.ready || !desk.settings.notifyUrgent) return;
+    if (!desk.ready || !desk.settings.notifyUrgent || !remindersAllowed) return;
     const authEnabled = auth.enabled;
     const ownerId = account.expectedUserId;
     void (async () => {
@@ -353,6 +379,7 @@ export default function LivantaApp({
     nowTick,
     auth.enabled,
     account.expectedUserId,
+    remindersAllowed,
   ]);
 
   const openThing = useCallback((thing: Thing) => {
@@ -617,16 +644,17 @@ export default function LivantaApp({
 
   if (surface.kind === "onboarding" || surface.kind === "setup") {
     return (
-      <div className="app" lang={desk.settings.locale}>
+      <div className="app" lang={entryLocale}>
         <div className="app__col">
           <div
             className="app__body"
             style={obAuthOpen ? { display: "none" } : undefined}
           >
             <Onboarding
-              locale={desk.settings.locale}
+              locale={entryLocale}
               step={obStep}
               onStepChange={setObStep}
+              onLocale={auth.enabled ? gate.setLocale : undefined}
               onDone={(result) => void desk.completeOnboarding(result)}
               onSignIn={() => setObAuthOpen(true)}
             />
@@ -638,20 +666,21 @@ export default function LivantaApp({
                   <button
                     className="iconbtn"
                     onClick={() => setObAuthOpen(false)}
-                    aria-label={t("app.back")}
+                    aria-label={entryT("app.back")}
                   >
                     <Icon name="chevronLeft" size={22} />
                   </button>
                   <div style={{ minWidth: 0 }}>
-                    <h1 className="appbar__title">{t("account.title")}</h1>
-                    <p className="appbar__sub">{t("account.subtitle")}</p>
+                    <h1 className="appbar__title">{entryT("account.title")}</h1>
+                    <p className="appbar__sub">{entryT("account.subtitle")}</p>
                   </div>
                 </div>
               </header>
               <div className="app__body">
                 <AuthScreen
-                  t={t}
+                  t={entryT}
                   auth={auth}
+                  locale={entryLocale}
                   onClose={() => setObAuthOpen(false)}
                   onDone={(message) => {
                     showToast(message, "ok");
@@ -659,7 +688,7 @@ export default function LivantaApp({
                     void desk.completeOnboarding({
                       categories: [],
                       firstThings: [],
-                      locale: desk.settings.locale,
+                      locale: entryLocale,
                     });
                   }}
                   onSignOut={handleSignOut}
@@ -675,13 +704,13 @@ export default function LivantaApp({
 
   if (surface.kind === "auth-loading") {
     return (
-      <div className="app" lang={desk.settings.locale}>
+      <div className="app" lang={entryLocale}>
         <div className="app__col">
           <div className="app__body splash" role="status" aria-live="polite">
             <span className="splash__logo">
               <Logo variant="wordmark" priority />
             </span>
-            <p className="splash__slogan">{t("auth.checking")}</p>
+            <p className="splash__slogan">{entryT("auth.checking")}</p>
           </div>
         </div>
       </div>
@@ -690,15 +719,15 @@ export default function LivantaApp({
 
   if (surface.kind === "auth-error") {
     return (
-      <div className="app" lang={desk.settings.locale}>
+      <div className="app" lang={entryLocale}>
         <div className="app__col">
           <div className="app__body">
             <div className="ob-brand" style={{ textAlign: "center" }}>
               <Logo variant="wordmark" priority />
               <h2 className="ob-h" style={{ marginTop: "1rem", marginBottom: "0.25rem" }}>
-                {t("auth.sessionErrorTitle")}
+                {entryT("auth.sessionErrorTitle")}
               </h2>
-              <p className="card-meta">{t("auth.sessionErrorBody")}</p>
+              <p className="card-meta">{entryT("auth.sessionErrorBody")}</p>
               {auth.error?.code === "unsupported-browser" ? (
                 <p className="card-meta" role="alert">
                   {auth.error.message}
@@ -711,7 +740,7 @@ export default function LivantaApp({
               onClick={() => void auth.retrySession()}
             >
               <Icon name="refresh" size={18} />
-              {t("app.retry")}
+              {entryT("app.retry")}
             </button>
             {/* A signed-in session whose account id is unusable cannot be
                 repaired by re-reading it; signing out is the way back to a
@@ -722,7 +751,7 @@ export default function LivantaApp({
                 style={{ marginTop: "0.75rem" }}
                 onClick={() => void handleSignOut()}
               >
-                {t("account.signOut")}
+                {entryT("account.signOut")}
               </button>
             ) : null}
           </div>
@@ -735,15 +764,15 @@ export default function LivantaApp({
      previous account. No account may open until the retry succeeds. */
   if (surface.kind === "identity-recovery") {
     return (
-      <div className="app" lang={desk.settings.locale}>
+      <div className="app" lang={entryLocale}>
         <div className="app__col">
           <div className="app__body">
             <div className="ob-brand" style={{ textAlign: "center" }}>
               <Logo variant="wordmark" priority />
               <h2 className="ob-h" style={{ marginTop: "1rem", marginBottom: "0.25rem" }}>
-                {t("auth.teardownTitle")}
+                {entryT("auth.teardownTitle")}
               </h2>
-              <p className="card-meta">{t("auth.teardownBody")}</p>
+              <p className="card-meta">{entryT("auth.teardownBody")}</p>
             </div>
             <button
               className="btn btn--primary btn--lg btn--block"
@@ -751,7 +780,7 @@ export default function LivantaApp({
               onClick={() => void auth.retryTransition()}
             >
               <Icon name="refresh" size={18} />
-              {t("app.retry")}
+              {entryT("app.retry")}
             </button>
           </div>
         </div>
@@ -761,7 +790,7 @@ export default function LivantaApp({
 
   if (surface.kind === "auth-gate" || surface.kind === "recovery") {
     return (
-      <div className="app" lang={desk.settings.locale}>
+      <div className="app" lang={entryLocale}>
         <div className="app__col">
           {/* No back control: the gate is the only way forward, and a recovery
               link owns the session until the new password is set. */}
@@ -771,17 +800,33 @@ export default function LivantaApp({
                 <Logo />
               </span>
               <div style={{ minWidth: 0 }}>
-                <h1 className="appbar__title">{t("account.title")}</h1>
-                <p className="appbar__sub">{t("account.subtitle")}</p>
+                <h1 className="appbar__title">{entryT("account.title")}</h1>
+                <p className="appbar__sub">{entryT("account.subtitle")}</p>
               </div>
             </div>
           </header>
           <main className="app__body" id="app-main" tabIndex={-1}>
             <AuthScreen
-              t={t}
+              t={entryT}
               auth={auth}
+              locale={gate.locale}
               initialMode={surface.kind === "recovery" ? "sign-in" : "welcome"}
-              onDone={(message) => showToast(message, "ok")}
+              /* A restored session belongs to the previous launch. The welcome
+                 choice stays in front of it, and "Continue as …" is the
+                 explicit way back into that account. */
+              forceEntry={auth.enabled && !gate.choiceDone}
+              onDone={(message, outcome) => {
+                // Signing in, or creating the account this launch will use,
+                // answers the entry choice. A reset request does not.
+                if (
+                  outcome === "signed-in" ||
+                  outcome === "confirmation-pending" ||
+                  outcome === "password-updated"
+                ) {
+                  gate.completeChoice();
+                }
+                showToast(message, "ok");
+              }}
               onSignOut={handleSignOut}
             />
           </main>
@@ -793,14 +838,14 @@ export default function LivantaApp({
 
   if (surface.kind === "booting") {
     return (
-      <div className="app" lang={desk.settings.locale}>
+      <div className="app" lang={entryLocale}>
         <div className="app__col">
           <div className="app__body splash" role="status" aria-live="polite">
             <span className="splash__logo">
               <Logo variant="wordmark" priority />
             </span>
-            <p className="splash__slogan">{t("app.slogan")}</p>
-            <span className="sr-only">{t("app.loading")}</span>
+            <p className="splash__slogan">{entryT("app.slogan")}</p>
+            <span className="sr-only">{entryT("app.loading")}</span>
           </div>
         </div>
       </div>
@@ -953,6 +998,7 @@ export default function LivantaApp({
               <AuthScreen
                 t={t}
                 auth={auth}
+                locale={desk.settings.locale}
                 onClose={pop}
                 onDone={(message) => showToast(message, "ok")}
                 onSignOut={handleSignOut}
@@ -1214,7 +1260,7 @@ function Header({
           onClick={onOpenProfile}
           aria-label={t("tab.profile")}
         >
-          <Avatar name={name || t("app.brand")} src={desk.settings.avatar} />
+          <Avatar name={name} src={desk.settings.avatar} />
         </button>
       </div>
     </header>
@@ -1276,12 +1322,12 @@ function DesktopRail({
   return (
     <aside className="app__aside">
       <div className="railhead">
-        <Avatar name={desk.settings.displayName || t("app.brand")} src={desk.settings.avatar} large />
+        <Avatar name={desk.settings.displayName} src={desk.settings.avatar} large />
         <div>
           <p className="railhead__title">{t("app.tagline")}</p>
           <p className="railhead__sub">
-            {t(greetingKeyFor(part, desk.settings.displayName), {
-              name: desk.settings.displayName,
+            {t(greetingKeyFor(part, firstName(desk.settings.displayName)), {
+              name: firstName(desk.settings.displayName),
             })}
           </p>
         </div>

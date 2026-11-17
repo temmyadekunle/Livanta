@@ -17,34 +17,75 @@ function fakeImage(type = "image/webp"): string {
 }
 
 test("avatarCrop", async (t) => {
-  await t.test("takes the largest square that fits", () => {
-    assert.equal(avatarCrop(400, 900).side, AVATAR_MAX_EDGE);
+  await t.test("takes the largest square that fits inside a large portrait", () => {
+    const { sx, sy, side, edge } = avatarCrop(1024, 1536);
+    assert.equal(side, 1024);
+    assert.equal(sx, 0);
+    assert.equal(sy, 256);
+    assert.equal(edge, AVATAR_MAX_EDGE);
   });
 
-  await t.test("centres the crop on a tall portrait", () => {
-    // 900 tall, 400 wide. The square is limited by the cap, not by the short
-    // edge, and equal bands come off the top and bottom so a face near the
-    // middle of the frame survives.
-    const { sx, sy, side } = avatarCrop(400, 900);
-    assert.equal(side, AVATAR_MAX_EDGE);
-    assert.equal(sx, 72);
-    assert.equal(sy, 322);
+  await t.test("scales the whole square down instead of sampling its centre", () => {
+    // The regression: side was capped at 256, so a 1024px photo was stored as
+    // the 256px square in its middle -- a 4x zoom on the face. The source
+    // square is the full width now, and only the canvas is capped.
+    const { sx, sy, side, edge } = avatarCrop(1024, 1024);
+    assert.equal(side, 1024);
+    assert.equal(sx, 0);
+    assert.equal(sy, 0);
+    assert.equal(edge, 256);
   });
 
-  await t.test("centres the crop on a wide photo", () => {
-    const { sx, sy, side } = avatarCrop(900, 400);
-    assert.equal(side, AVATAR_MAX_EDGE);
-    assert.equal(sx, 322);
-    assert.equal(sy, 72);
+  await t.test("centres the square on a tall portrait", () => {
+    // 900 tall, 400 wide: the square is the short edge, and equal bands come
+    // off the top and bottom so a face near the middle of the frame survives.
+    const { sx, sy, side, edge } = avatarCrop(400, 900);
+    assert.equal(side, 400);
+    assert.equal(sx, 0);
+    assert.equal(sy, 250);
+    assert.equal(edge, AVATAR_MAX_EDGE);
+  });
+
+  await t.test("centres the square on a wide photo", () => {
+    const { sx, sy, side, edge } = avatarCrop(900, 400);
+    assert.equal(side, 400);
+    assert.equal(sx, 250);
+    assert.equal(sy, 0);
+    assert.equal(edge, AVATAR_MAX_EDGE);
   });
 
   await t.test("crops a square down to the cap", () => {
-    assert.deepEqual(avatarCrop(300, 300), { sx: 22, sy: 22, side: 256 });
+    assert.deepEqual(avatarCrop(300, 300), {
+      sx: 0,
+      sy: 0,
+      side: 300,
+      edge: 256,
+    });
+  });
+
+  await t.test("keeps a user's square framing", () => {
+    // The crop sheet produces exactly the square the user framed. Nothing may
+    // be trimmed from it afterwards, or a face placed high or low is moved.
+    for (const [w, h] of [[1024, 1024], [640, 640], [300, 300], [48, 48]]) {
+      const { sx, sy, side } = avatarCrop(w, h);
+      assert.equal(side, Math.min(w, h));
+      assert.equal(sx, 0);
+      assert.equal(sy, 0);
+    }
   });
 
   await t.test("does not upscale a small image", () => {
     // Growing a 48px thumbnail would invent pixels and make it blurry.
-    assert.equal(avatarCrop(48, 48).side, 48);
+    const { side, edge } = avatarCrop(48, 48);
+    assert.equal(side, 48);
+    assert.equal(edge, 48);
+  });
+
+  await t.test("does not upscale a small non-square image", () => {
+    const { side, edge, sx } = avatarCrop(100, 60);
+    assert.equal(side, 60);
+    assert.equal(edge, 60);
+    assert.equal(sx, 20);
   });
 
   await t.test("never crops wider than the short edge", () => {
@@ -57,15 +98,19 @@ test("avatarCrop", async (t) => {
 
   await t.test("stays inside the source on both axes", () => {
     for (const [w, h] of [[1, 1], [3, 7], [64, 65], [1000, 3], [7, 1000]]) {
-      const { sx, sy, side } = avatarCrop(w, h);
+      const { sx, sy, side, edge } = avatarCrop(w, h);
       assert.ok(sx >= 0 && sy >= 0, `crop starts outside the image for ${w}x${h}`);
       assert.ok(sx + side <= w, `crop runs past the width for ${w}x${h}`);
       assert.ok(sy + side <= h, `crop runs past the height for ${w}x${h}`);
+      assert.ok(edge <= side, `canvas is larger than its source for ${w}x${h}`);
+      assert.ok(edge <= AVATAR_MAX_EDGE, `canvas exceeds the cap for ${w}x${h}`);
     }
   });
 
   await t.test("honours a smaller cap", () => {
-    assert.equal(avatarCrop(1000, 1000, 64).side, 64);
+    const { side, edge } = avatarCrop(1000, 1000, 64);
+    assert.equal(side, 1000);
+    assert.equal(edge, 64);
   });
 });
 

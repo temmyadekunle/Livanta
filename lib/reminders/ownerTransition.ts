@@ -17,6 +17,12 @@
  * attempt leaves the marker `transitioning`, which is what makes the next
  * launch recover instead of trusting an unknown reminder state.
  *
+ * A session restored before this launch's authentication choice is owned but
+ * suspended: the transition still confirms the session, cancels the plan that
+ * a previous launch left armed, and records `active` for the same owner. The
+ * account's records keep their scheduling information; the app schedules the
+ * plan again only after the user chooses and the account surface is ready.
+ *
  * A cold start whose session cannot be read at all has no target to compare
  * against. In that case (`unresolved: true`) the same transition runs for the
  * only owner the device can prove — none — because cancellation is
@@ -47,6 +53,16 @@ export interface EnsureReminderOwnerInput {
    * aborts this transition; the caller restarts with the newest target.
    */
   readonly confirmOwner: () => Promise<string | null>;
+  /**
+   * Cancel an already-adopted plan instead of adopting it.
+   *
+   * The entry flow sets this for a session restored before this launch's
+   * authentication choice. Ownership is still the same account, so the marker
+   * is left active for it; only the native alarms are dropped. That is what
+   * stops account titles appearing in notifications behind the welcome screen,
+   * and the next reconciliation for the account reschedules the full plan.
+   */
+  readonly cancelActivePlan?: boolean;
   /**
    * Fail-closed mode for an unavailable authority (ADR 0002 §5.3 cold start).
    * When the session cannot be read, the transition still cancels every
@@ -121,8 +137,16 @@ export async function ensureReminderOwner(
       // Step 5: another tab (or an earlier activation) already completed the
       // cancellation for this owner, and the session still names it. Adopting
       // the marker avoids wiping a plan that is about to be reconciled anyway.
+      // The entry gate refuses that adoption until this launch's choice is
+      // made, because the plan is visible on the device before the account is.
       const marker = readReminderMarker();
-      if (marker?.phase === "active" && marker.owner === target) return;
+      if (
+        !input.cancelActivePlan &&
+        marker?.phase === "active" &&
+        marker.owner === target
+      ) {
+        return;
+      }
 
       const transition = beginReminderTransition(target);
       await cancelForTransition(transition);

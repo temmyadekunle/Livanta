@@ -59,6 +59,11 @@ export interface AppSurfaceInput {
    * disappear immediately, without waiting for this tab's own auth event.
    */
   identityRevoked?: boolean;
+  /**
+   * This launch has not yet passed the authentication choice. A restored
+   * session does not satisfy it: the user must see the welcome and choose.
+   */
+  entryChoicePending?: boolean;
 }
 
 export function resolveAppSurface(input: AppSurfaceInput): AppSurface {
@@ -94,6 +99,11 @@ export function resolveAppSurface(input: AppSurfaceInput): AppSurface {
     // A recovery link signs the user in, so this has to win over the ordinary
     // signed-in path; otherwise the new-password form is unreachable.
     if (input.passwordResetReady) return { kind: "recovery" };
+
+    // The launch's authentication choice is mandatory. A valid restored
+    // session is not a substitute: without this the app opens directly into
+    // the previous account and the introduction's own choice never happens.
+    if (input.entryChoicePending) return { kind: "auth-gate" };
   }
 
   if (!input.ready) return { kind: "booting" };

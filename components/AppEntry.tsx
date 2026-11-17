@@ -1,81 +1,41 @@
 "use client";
 
 /**
- * Chooses between the first-time introduction and the existing app before
- * either surface mounts. Keeping this above LivantaApp matters: the
- * introduction is presentation-only and must not open the anonymous database
- * or read settings, which mounting the app would do.
+ * Runs the mandatory entry flow before the app mounts.
  *
- * The introduction is only for a signed-out, auth-enabled device that has not
- * completed it. Loading and error states keep the app's own fail-closed
- * surfaces, and a signed-in or auth-disabled build goes straight to the app.
+ * Every launch starts with the introduction, whatever the session state: a
+ * restored session must not skip the introduction or the authentication
+ * choice. The one exception is a session exchanged from this launch's own
+ * sign-up confirmation link, which is itself proof of the account. Keeping
+ * this above LivantaApp also means the introduction cannot open an account
+ * store or read settings; it ends by handing over to the app, whose own
+ * surface decision then requires an authenticated session.
+ *
+ * Auth-disabled builds keep their existing offline onboarding flow.
  */
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 
 import LivantaApp from "./LivantaApp";
 import { Introduction } from "./Introduction";
-import { Logo } from "./Logo";
 import { getAccountTransitionCoordinator } from "@/lib/accountTransition";
-import {
-  hasCompletedIntroduction,
-  markIntroductionCompleted,
-  shouldShowIntroduction,
-} from "@/lib/introduction";
+import { parseConfirmationLinkAccessToken } from "@/lib/authLinkError";
+import { hydrateEntryLocale, useEntryGate } from "@/lib/entryGate";
+import { makeT } from "@/lib/i18n";
+import { shouldShowIntroduction } from "@/lib/introduction";
 import { registerSessionTeardown, useAuth } from "@/lib/useAuth";
-
-/**
- * "unread" exists only for the server snapshot. The marker lives in
- * localStorage, which the server cannot read, so the first frame is a neutral
- * splash rather than a guess that would either flash the introduction for a
- * returning user or hide it from a new one.
- */
-type IntroState = "unread" | "pending" | "complete";
-
-const introListeners = new Set<() => void>();
-
-function subscribeToIntro(listener: () => void) {
-  introListeners.add(listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    introListeners.delete(listener);
-    window.removeEventListener("storage", listener);
-  };
-}
-
-function readIntroState(): IntroState {
-  return hasCompletedIntroduction() ? "complete" : "pending";
-}
-
-function serverIntroState(): IntroState {
-  return "unread";
-}
-
-function completeIntroduction() {
-  markIntroductionCompleted();
-  for (const listener of introListeners) listener();
-}
-
-function StartSplash() {
-  return (
-    <div className="intro">
-      <div className="intro__col splash" role="status" aria-live="polite">
-        <span className="splash__logo">
-          <Logo variant="wordmark" priority />
-        </span>
-        <span className="sr-only">Loading</span>
-      </div>
-    </div>
-  );
-}
 
 export default function AppEntry() {
   const auth = useAuth();
-  const intro = useSyncExternalStore(
-    subscribeToIntro,
-    readIntroState,
-    serverIntroState,
-  );
+  const gate = useEntryGate();
+
+  /* Read once, before useAuth starts and supabase-js consumes the fragment.
+     It only decides whether to hold the introduction back while the client
+     exchanges the link; the session itself is what proves the confirmation. */
+  const [linkPending] = useState(() => {
+    if (!auth.enabled || typeof window === "undefined") return false;
+    return parseConfirmationLinkAccessToken(window.location.hash) !== null;
+  });
 
   /* The transition coordinator lives outside React because LivantaApp is
      remounted whenever the auth status changes. A coordinator created inside
@@ -91,20 +51,44 @@ export default function AppEntry() {
     return () => registerSessionTeardown(null);
   }, [coordinator]);
 
-  /* A first-time device waits for the session check before showing the
-     introduction, so an existing session is never interrupted by it. */
-  if (intro === "unread" || (intro === "pending" && auth.enabled && auth.status === "loading")) {
-    return <StartSplash />;
-  }
+  useEffect(() => {
+    hydrateEntryLocale();
+  }, []);
+
+  /* A session exchanged from this launch's sign-up confirmation is proof of the
+     account, exactly as a recovery link is. The introduction and the explicit
+     "Continue as" choice exist to make a *restored* session earn that proof;
+     asking again here would leave two screens between a confirmed user and
+     their desk. The flag is only set when the published session's token is the
+     one the link carried, so a restored session, a failed exchange or another
+     account keeps both gates. */
+  const linkedLaunch = auth.enabled && auth.emailLinkAuthenticated;
+  const { completeIntroduction, completeChoice } = gate;
+  useEffect(() => {
+    if (!linkedLaunch) return;
+    completeIntroduction();
+    completeChoice();
+  }, [linkedLaunch, completeIntroduction, completeChoice]);
+
+  /* The fragment is visible a moment before the client finishes exchanging it.
+     Holding the introduction until the session settles stops it flashing for
+     a user who is about to land on the desk. A link that fails to exchange
+     settles into the ordinary flow on the next render. */
+  if (linkPending && auth.status === "loading") return null;
 
   if (
-    shouldShowIntroduction({
-      authEnabled: auth.enabled,
-      authStatus: auth.status,
-      completed: intro === "complete",
-    })
+    shouldShowIntroduction({ authEnabled: auth.enabled }) &&
+    !gate.introDone &&
+    !linkedLaunch
   ) {
-    return <Introduction onComplete={completeIntroduction} />;
+    return (
+      <Introduction
+        t={makeT(gate.locale)}
+        locale={gate.locale}
+        onLocale={gate.setLocale}
+        onComplete={gate.completeIntroduction}
+      />
+    );
   }
 
   /* Remounting on a different account is what guarantees no view state from

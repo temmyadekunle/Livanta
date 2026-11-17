@@ -4,7 +4,7 @@ import { assert } from "./helpers.ts";
 
 import { dayPart, nextOccurrence } from "../lib/dates.ts";
 import { en } from "../lib/locales/en.ts";
-import { greetingKey } from "../lib/useDayPart.ts";
+import { firstName, greetingKey, greetingKeyFor } from "../lib/useDayPart.ts";
 
 /** Built in local time on purpose: dayPart reads the reader's own clock, so a
     test that pinned the zone would be testing the wrong thing. */
@@ -74,6 +74,23 @@ test("greetingKey", async (t) => {
     assert.notEqual(en["app.greeting.morning"], en["app.greeting.afternoon"]);
     assert.notEqual(en["app.greeting.afternoon"], en["app.greeting.evening"]);
     assert.notEqual(en["app.greeting.morning"], en["app.greeting.evening"]);
+  });
+});
+
+test("firstName", async (t) => {
+  await t.test("uses the first word of a saved display name", () => {
+    assert.equal(firstName("  Temmy Adekunle "), "Temmy");
+    assert.equal(firstName("Temmy"), "Temmy");
+  });
+
+  await t.test("stays empty so the greeting falls back to the clock", () => {
+    assert.equal(firstName(""), "");
+    assert.equal(firstName("   "), "");
+  });
+
+  await t.test("greetingKeyFor chooses the nameless form only when blank", () => {
+    assert.equal(greetingKeyFor("evening", "Temmy"), "app.greeting.evening");
+    assert.equal(greetingKeyFor("evening", ""), "app.greeting.evening.none");
   });
 });
 

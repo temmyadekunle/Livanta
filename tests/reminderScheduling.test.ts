@@ -563,6 +563,28 @@ test("an active marker for a different owner still cancels", async () => {
   assert.equal(readReminderMarker()?.owner, await reminderOwnerHash(B_ID));
 });
 
+test("an active plan is cancelled, not adopted, before the entry choice", async () => {
+  await activate(A_ID);
+  const record = adapter();
+  setReminderAdapterForTesting(record);
+
+  const outcome = await ensureReminderOwner({
+    ownerId: A_ID,
+    confirmOwner: async () => A_ID,
+    cancelActivePlan: true,
+  });
+
+  assert.equal(outcome.status, "ready");
+  assert.deepEqual(
+    record.ops,
+    ["cancel"],
+    "the plan a previous launch armed is dropped before the choice",
+  );
+  const marker = readReminderMarker();
+  assert.equal(marker?.phase, "active");
+  assert.equal(marker?.owner, await reminderOwnerHash(A_ID), "ownership is unchanged");
+});
+
 test("a transitioning marker is never adopted; it is completed by cancelling", async () => {
   beginReminderTransition(await reminderOwnerHash(A_ID));
   const record = adapter();

@@ -127,6 +127,7 @@ export default function Onboarding({
   onDone,
   onSignIn,
   onDemo,
+  onLocale,
 }: {
   locale: Locale;
   step: number;
@@ -134,12 +135,23 @@ export default function Onboarding({
   onDone: (result: OnboardingResult) => void;
   onSignIn: () => void;
   onDemo?: (locale: Locale) => void;
+  /**
+   * Reports the language chosen here to the caller. First-run onboarding is
+   * the entry flow's continuation, so its picker must update the same entry
+   * language the introduction set rather than diverge from it.
+   */
+  onLocale?: (locale: Locale) => void;
 }) {
   const [locale, setLocale] = useState<Locale>(initialLocale);
   const [picked, setPicked] = useState<Category[]>([]);
   const [dates, setDates] = useState<Record<string, string>>({});
 
   const t = makeT(locale);
+
+  function pickLocale(next: Locale) {
+    setLocale(next);
+    onLocale?.(next);
+  }
 
   function toggle(id: Category) {
     setPicked((prev) =>
@@ -189,7 +201,7 @@ export default function Onboarding({
 
           <div className="field">
             <span>{t("ob.language")}</span>
-            <LocalePicker locale={locale} onChange={setLocale} t={t} />
+            <LocalePicker locale={locale} onChange={pickLocale} t={t} />
           </div>
 
           <button
